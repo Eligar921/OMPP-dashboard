@@ -17,8 +17,13 @@ PROJECT_ALIASES = {
     'магнит сборка': 'Магнит',
     'магнит ': 'Магнит',
     'гулливер': 'Гулливер',
-    'Бубль Гум': 'Бубль-Гум',
     'ооо "таймбук"': 'Гулливер',
+    'бубль гум': 'Бубль-Гум',
+    'бубль-гум': 'Бубль-Гум',
+    'бубльгум': 'Бубль-Гум',
+    'бубль-гум ': 'Бубль-Гум',
+    'бубль гум ': 'Бубль-Гум',
+    'бубльгум ': 'Бубль-Гум',
 }
 
 def normalize_project(project_name):
@@ -927,9 +932,13 @@ def get_project_data(df_main_f, df_kpi_f):
             worked_main_counts = df_worked_main.groupby('Проект')['Телефон'].nunique().reset_index()
             worked_main_counts.columns = ['Проект', 'Кол-во вышедших (из приглашенных)']
             
+            # Объединяем и группируем по проекту
             main_project_data = pd.merge(invited_counts, worked_main_counts, on='Проект', how='outer').fillna(0)
             main_project_data['Кол-во приглашенных'] = main_project_data['Кол-во приглашенных'].astype(int)
             main_project_data['Кол-во вышедших (из приглашенных)'] = main_project_data['Кол-во вышедших (из приглашенных)'].astype(int)
+            # Группируем по проекту, суммируя числовые колонки
+            numeric_cols = ['Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)']
+            main_project_data = main_project_data.groupby('Проект', as_index=False)[numeric_cols].sum()
     else:
         main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
 
@@ -937,13 +946,20 @@ def get_project_data(df_main_f, df_kpi_f):
         kpi_project_counts = df_kpi_f.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
         kpi_project_counts.columns = ['Проект', 'Кол-во вышедших (с дошедшими)']
         kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
+        # Группируем по проекту, суммируя числовые колонки
+        kpi_project_counts = kpi_project_counts.groupby('Проект', as_index=False)['Кол-во вышедших (с дошедшими)'].sum()
     else:
         kpi_project_counts = pd.DataFrame(columns=['Проект', 'Кол-во вышедших (с дошедшими)'])
 
+    # Нормализуем проекты в main_project_data (если ещё не сделано)
     if not main_project_data.empty:
         main_project_data['Проект'] = main_project_data['Проект'].apply(lambda x: normalize_project(x).strip())
+        # Повторная группировка после нормализации (на случай, если разные варианты)
+        numeric_cols = ['Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)']
+        main_project_data = main_project_data.groupby('Проект', as_index=False)[numeric_cols].sum()
     if not kpi_project_counts.empty:
         kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
+        kpi_project_counts = kpi_project_counts.groupby('Проект', as_index=False)['Кол-во вышедших (с дошедшими)'].sum()
 
     merged = pd.merge(main_project_data, kpi_project_counts, on='Проект', how='outer').fillna(0)
     for col in ['Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)', 'Кол-во вышедших (с дошедшими)']:
