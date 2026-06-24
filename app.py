@@ -979,10 +979,14 @@ def build_leaderboard(df_recruiters, stats_df, best_avg_duration_recruiter=None,
 lb = build_leaderboard(df_recruiters, stats_df, best_avg_duration_recruiter, best_avg_duration_value)
 if not lb.empty:
     st.subheader("🏆 Лидерборд")
-    cols = st.columns(4)
-    for i, (_, row) in enumerate(lb.iterrows()):
-        with cols[i % 4]:
-            st.metric(label=row['Категория'], value=row['Значение'], delta=row['Рекрутер'])
+    # Разбиваем на группы по 3 (отклики/конверсии и звонки)
+    for i in range(0, len(lb), 3):
+        cols = st.columns(3)
+        for j in range(3):
+            if i + j < len(lb):
+                row = lb.iloc[i + j]
+                with cols[j]:
+                    st.metric(label=row['Категория'], value=row['Значение'], delta=row['Рекрутер'])
     st.markdown("---")
 else:
     st.info("Нет данных для лидерборда.")
