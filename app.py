@@ -237,14 +237,24 @@ if uploaded_file_responses is not None:
 
 # ---- Обработка файла звонков Mango-Office (CSV) ----
 if uploaded_file_calls is not None:
-    try:
-        # Пробуем прочитать CSV с разделителем ; и десятичной запятой
-        df_calls = pd.read_csv(uploaded_file_calls, sep=';', decimal=',', quotechar='"', encoding='utf-8')
-        # Удаляем лишние пробелы из названий колонок
+    # Пробуем разные кодировки
+    encodings = ['utf-8-sig', 'cp1251', 'latin1', 'utf-8']
+    df_calls = None
+    for enc in encodings:
+        try:
+            df_calls = pd.read_csv(uploaded_file_calls, sep=';', decimal=',', quotechar='"', encoding=enc)
+            # Если чтение прошло успешно, выходим из цикла
+            break
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            st.error(f"Ошибка при чтении CSV с кодировкой {enc}: {e}")
+            df_calls = None
+            break
+    if df_calls is not None:
         df_calls.columns = df_calls.columns.str.strip()
-    except Exception as e:
-        st.error(f"Не удалось прочитать CSV файл звонков: {e}")
-        df_calls = None
+    else:
+        st.error("Не удалось прочитать CSV файл звонков ни в одной из поддерживаемых кодировок.")
 
 # ---- Боковая панель с фильтрами ----
 st.sidebar.header("Фильтры")
@@ -698,64 +708,87 @@ def create_recruiter_df(data):
 df_recruiters = create_recruiter_df(recruiter_data)
 df_recruiters_all = create_recruiter_df(recruiter_data_all)
 
-# ---- Функция для построения LeaderBoard ----
-def build_leaderboard(df_recruiters):
-    """Возвращает DataFrame с тремя строками: лучшая конверсия из отклика, лучшая конверсия из приглашенных, больше всего откликов."""
+# ---- Данные для лидерборда по звонкам ----
+best_avg_duration_recruiter = None
+best_avg_duration_value = None
+if df_calls_filtered is not None and not df_calls_filtered.empty:
+    # Вычисляем среднюю длительность по каждому рекрутеру (для всех исходящих звонков)
+    avg_duration = df_calls_filtered.groupby('Рекрутер')['Длительность, сек'].mean().reset_index()
+    avg_duration.columns = ['Рекрутер', 'Средняя длительность']
+    if not avg_duration.empty:
+        max_row = avg_duration.loc[avg_duration['Средняя длительность'].idxmax()]
+        best_avg_duration_recruiter = max_row['Рекрутер']
+        best_avg_duration_value = round(max_row['Средняя длительность'], 1)
+
+# ---- Функция для построения LeaderBoard (добавлена строка по звонкам) ----
+def build_leaderboard(df_recruiters, best_avg_duration_recruiter=None, best_avg_duration_value=None):
+    """Возвращает DataFrame с четырьмя строками: лучшая конверсия из отклика, лучшая конверсия из приглашенных, больше всего откликов, лучшая средняя длительность звонков."""
     if df_recruiters is None or df_recruiters.empty:
-        return pd.DataFrame()
+        # Если нет данных, возвращаем только строку по звонкам, если есть
+        rows = []
+        if best_avg_duration_recruiter is not None:
+            rows.append({
+                'Категория': 'Лучшая средняя длительность исходящих звонков',
+                'Рекрутер': best_avg_duration_recruiter,
+                'Значение': f"{best_avg_duration_value} сек"
+            })
+        return pd.DataFrame(rows)
+    
     # Убираем строки с итогами (если они есть)
     df_clean = df_recruiters[~df_recruiters['Рекрутер'].str.contains('Итого|Среднее', na=False)].copy()
-    if df_clean.empty:
-        return pd.DataFrame()
+    
+    rows = []
+    
     # 1. Лучшая конверсия из отклика в вышедшего (с дошедшими)
     if 'Конверсия из откликов в вышедших, %' in df_clean.columns:
         df_clean['conv_resp_to_worked'] = df_clean['Конверсия из откликов в вышедших, %'].str.replace('%', '').astype(float)
-    else:
-        df_clean['conv_resp_to_worked'] = 0
-    best_conv_resp = df_clean.loc[df_clean['conv_resp_to_worked'].idxmax()] if not df_clean.empty else None
+        best_conv_resp = df_clean.loc[df_clean['conv_resp_to_worked'].idxmax()] if not df_clean.empty else None
+        if best_conv_resp is not None:
+            rows.append({
+                'Категория': 'Лучшая конверсия из отклика → вышедший (с дошедшими)',
+                'Рекрутер': best_conv_resp['Рекрутер'],
+                'Значение': f"{best_conv_resp['conv_resp_to_worked']:.1f}%"
+            })
 
     # 2. Лучшая конверсия из приглашенного в вышедшего (из приглашенных)
     if 'Конверсия из пригл. в вышедших из приглашенных, %' in df_clean.columns:
         df_clean['conv_inv_to_worked'] = df_clean['Конверсия из пригл. в вышедших из приглашенных, %'].str.replace('%', '').astype(float)
-    else:
-        df_clean['conv_inv_to_worked'] = 0
-    best_conv_inv = df_clean.loc[df_clean['conv_inv_to_worked'].idxmax()] if not df_clean.empty else None
+        best_conv_inv = df_clean.loc[df_clean['conv_inv_to_worked'].idxmax()] if not df_clean.empty else None
+        if best_conv_inv is not None:
+            rows.append({
+                'Категория': 'Лучшая конверсия из приглашенного → вышедший (из приглашенных)',
+                'Рекрутер': best_conv_inv['Рекрутер'],
+                'Значение': f"{best_conv_inv['conv_inv_to_worked']:.1f}%"
+            })
 
     # 3. Больше всего откликов обработано
     if 'Кол-во откликов' in df_clean.columns:
         most_responses = df_clean.loc[df_clean['Кол-во откликов'].idxmax()] if not df_clean.empty else None
-    else:
-        most_responses = None
+        if most_responses is not None:
+            rows.append({
+                'Категория': 'Больше всего откликов обработано',
+                'Рекрутер': most_responses['Рекрутер'],
+                'Значение': str(int(most_responses['Кол-во откликов']))
+            })
 
-    rows = []
-    if best_conv_resp is not None:
+    # 4. Лучшая средняя длительность исходящих звонков
+    if best_avg_duration_recruiter is not None:
         rows.append({
-            'Категория': 'Лучшая конверсия из отклика → вышедший (с дошедшими)',
-            'Рекрутер': best_conv_resp['Рекрутер'],
-            'Значение': f"{best_conv_resp['conv_resp_to_worked']:.1f}%"
+            'Категория': 'Лучшая средняя длительность исходящих звонков',
+            'Рекрутер': best_avg_duration_recruiter,
+            'Значение': f"{best_avg_duration_value} сек"
         })
-    if best_conv_inv is not None:
-        rows.append({
-            'Категория': 'Лучшая конверсия из приглашенного → вышедший (из приглашенных)',
-            'Рекрутер': best_conv_inv['Рекрутер'],
-            'Значение': f"{best_conv_inv['conv_inv_to_worked']:.1f}%"
-        })
-    if most_responses is not None:
-        rows.append({
-            'Категория': 'Больше всего откликов обработано',
-            'Рекрутер': most_responses['Рекрутер'],
-            'Значение': str(int(most_responses['Кол-во откликов']))
-        })
+
     return pd.DataFrame(rows)
 
 # ---- LeaderBoard (выводим сразу после заголовка) ----
-if 'df_recruiters' in locals() and df_recruiters is not None and not df_recruiters.empty:
-    lb = build_leaderboard(df_recruiters)
+if 'df_recruiters' in locals() and (df_recruiters is not None or best_avg_duration_recruiter is not None):
+    lb = build_leaderboard(df_recruiters, best_avg_duration_recruiter, best_avg_duration_value)
     if not lb.empty:
         st.subheader("🏆 Лидерборд")
-        cols = st.columns(3)
+        cols = st.columns(4)  # теперь 4 столбца
         for i, (_, row) in enumerate(lb.iterrows()):
-            with cols[i]:
+            with cols[i % 4]:
                 st.metric(label=row['Категория'], value=row['Значение'], delta=row['Рекрутер'])
         st.markdown("---")
 
@@ -1217,6 +1250,7 @@ if df_kpi_filtered is not None and not df_kpi_filtered.empty:
     pie_data = df_kpi_filtered.groupby('Источник ОМПП')['Телефон гигера'].nunique().reset_index()
     pie_data.columns = ['Источник', 'Кол-во']
     if not pie_data.empty:
+        # Увеличиваем размер диаграммы и добавляем отступы между сегментами
         fig_pie = px.pie(
             pie_data,
             values='Кол-во',
@@ -1225,7 +1259,10 @@ if df_kpi_filtered is not None and not df_kpi_filtered.empty:
             hover_data={'Кол-во': True},
             labels={'Кол-во': 'Кол-во вышедших'}
         )
-        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+        # Увеличиваем высоту и ширину (за счёт layout)
+        fig_pie.update_layout(height=600, width=800)  # увеличение в ~2 раза
+        # Разделяем сегменты (pull)
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label', pull=[0.05] * len(pie_data))
         st.plotly_chart(fig_pie, use_container_width=True)
         st.markdown("---")
 
