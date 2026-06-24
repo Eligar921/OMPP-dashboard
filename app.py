@@ -415,71 +415,7 @@ if df_main_filtered is not None:
             }
         )
 
-# ---- 3. График по источникам (вышедшие из KPI) ----
-if df_kpi_filtered is not None:
-    st.subheader("📊 Кол-во вышедших кандидатов по источникам (с дошедшими)")
-    available_sources_kpi = sorted(df_kpi_filtered['Источник ОМПП'].unique())
-    if not available_sources_kpi:
-        st.warning("Нет доступных источников для отображения.")
-    else:
-        selected_source_for_chart_kpi = st.selectbox("Выберите источник для отображения (вышедшие):", options=available_sources_kpi, key="source_chart_kpi")
-
-        df_chart_kpi = df_kpi_filtered[df_kpi_filtered['Источник ОМПП'] == selected_source_for_chart_kpi]
-        chart_data_kpi = df_chart_kpi.groupby('Рекрутер')['Телефон гигера'].nunique().reset_index()
-        chart_data_kpi.columns = ['Рекрутер', 'Кол-во']
-        chart_data_kpi = chart_data_kpi.sort_values('Кол-во', ascending=False)
-
-        if chart_data_kpi.empty:
-            st.info("Нет данных для выбранного источника.")
-        else:
-            fig_kpi = px.bar(
-                chart_data_kpi,
-                x='Кол-во',
-                y='Рекрутер',
-                orientation='h',
-                title=f"Источник: {selected_source_for_chart_kpi}",
-                labels={'Кол-во': 'Кол-во вышедших кандидатов', 'Рекрутер': ''},
-                text='Кол-во',
-                color='Кол-во',
-                color_continuous_scale='Greens',
-                height=500
-            )
-            fig_kpi.update_traces(textposition='outside')
-            fig_kpi.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
-            st.plotly_chart(fig_kpi, use_container_width=True)
-
-        # ---- 3a. Детальная таблица по источникам (вышедшие из KPI) ----
-        st.subheader("📋 Вышедшие по источникам и рекрутерам")
-        detail_kpi = df_kpi_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон гигера'].nunique().reset_index()
-        detail_kpi.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
-
-        recruiter_total_kpi = detail_kpi.groupby('Рекрутер')['Кол-во'].sum().reset_index()
-        recruiter_total_kpi.columns = ['Рекрутер', 'Всего_рекрутер']
-
-        grand_total_kpi = detail_kpi['Кол-во'].sum()
-
-        detail_kpi = detail_kpi.merge(recruiter_total_kpi, on='Рекрутер', how='left')
-        detail_kpi['% от рекрутера'] = (detail_kpi['Кол-во'] / detail_kpi['Всего_рекрутер'] * 100).round(1)
-        detail_kpi['% от всех'] = (detail_kpi['Кол-во'] / grand_total_kpi * 100).round(1)
-
-        detail_kpi['% от рекрутера'] = detail_kpi['% от рекрутера'].astype(str) + '%'
-        detail_kpi['% от всех'] = detail_kpi['% от всех'].astype(str) + '%'
-
-        detail_kpi = detail_kpi.sort_values(['Рекрутер', 'Кол-во'], ascending=[True, False])
-
-        st.dataframe(
-            detail_kpi[['Рекрутер', 'Источник ОМПП', 'Кол-во', '% от рекрутера', '% от всех']],
-            use_container_width=True,
-            column_config={
-                "Рекрутер": st.column_config.TextColumn("Рекрутер", width="auto"),
-                "Источник ОМПП": st.column_config.TextColumn("Источник ОМПП", width="auto"),
-                "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d", width="auto"),
-                "% от рекрутера": st.column_config.TextColumn("% от рекрутера", width="auto"),
-                "% от всех": st.column_config.TextColumn("% от всех", width="auto"),
-            }
-        )
-
-# ---- 4. Приглашенные по проектам (график) ----
+# ---- 3. Приглашенные по проектам (график) ----
 if df_main_filtered is not None and 'Желаемые проекты (Группа)' in df_main_filtered.columns:
     st.subheader("📊 Приглашенные по проектам")
     df_projects = df_main_filtered.copy()
@@ -518,7 +454,7 @@ if df_main_filtered is not None and 'Желаемые проекты (Групп
 else:
     st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-# ---- 5. Вышедшие по проектам (из приглашенных) ----
+# ---- 4. Вышедшие по проектам (из приглашенных) ----
 if df_main_filtered is not None:
     if 'Статус координатора' in df_main_filtered.columns:
         df_worked = df_main_filtered[df_main_filtered['Статус координатора'] == 'went_work']
@@ -579,7 +515,7 @@ if df_main_filtered is not None:
     else:
         st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
 
-# ---- 6. Приглашенные по городам (только таблица) ----
+# ---- 5. Приглашенные по городам (только таблица) ----
 if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
     st.subheader("🏙️ Приглашенные по городам")
 
@@ -607,7 +543,7 @@ if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
 else:
     st.info("Столбец 'Город' не найден, таблица городов пропущена.")
 
-# ---- 7. Вышедшие по городам из приглашенных ----
+# ---- 6. Вышедшие по городам из приглашенных ----
 if df_main_filtered is not None:
     if 'Статус координатора' in df_main_filtered.columns:
         df_worked = df_main_filtered[df_main_filtered['Статус координатора'] == 'went_work']
@@ -659,7 +595,7 @@ if df_main_filtered is not None:
     else:
         st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Город первой подтвержденной смены за всю жизнь'.")
 
-# ---- 8. НОВЫЙ БЛОК: Вышедшие по проектам (с дошедшими) из KPI ----
+# ---- 7. НОВЫЙ БЛОК: Вышедшие по проектам (с дошедшими) из KPI ----
 if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
     st.subheader("✅ Вышедшие по проектам (с дошедшими)")
 
@@ -675,7 +611,6 @@ if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
     else:
         df_kpi_filtered_for_project = df_kpi_filtered[df_kpi_filtered['Источник ОМПП'] == selected_source_kpi]
 
-    # Группировка по клиенту (проекту) – подсчёт уникальных телефонов гигеров
     kpi_project_counts = df_kpi_filtered_for_project.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
     kpi_project_counts.columns = ['Проект', 'Кол-во вышедших']
     kpi_project_counts = kpi_project_counts.sort_values('Кол-во вышедших', ascending=False)
@@ -694,11 +629,10 @@ if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
 else:
     st.info("Для отображения блока 'Вышедшие по проектам (с дошедшими)' загрузите файл KPI с полем 'Клиент'.")
 
-# ---- 9. НОВЫЙ БЛОК: Вышедшие первогигеры по городам (с дошедшими) из KPI ----
+# ---- 8. НОВЫЙ БЛОК: Вышедшие первогигеры по городам (с дошедшими) из KPI ----
 if df_kpi_filtered is not None and 'Город' in df_kpi_filtered.columns:
     st.subheader("🏙️ Вышедшие первогигеры по городам (с дошедшими)")
 
-    # Фильтр по источнику для городов
     source_options_city_kpi = ['Все'] + sorted(df_kpi_filtered['Источник ОМПП'].unique())
     selected_source_city_kpi = st.selectbox(
         "Выберите источник для фильтрации (города):",
@@ -711,7 +645,6 @@ if df_kpi_filtered is not None and 'Город' in df_kpi_filtered.columns:
     else:
         df_kpi_filtered_city = df_kpi_filtered[df_kpi_filtered['Источник ОМПП'] == selected_source_city_kpi]
 
-    # Очистка города от пробелов и пустых значений
     city_data_kpi = df_kpi_filtered_city[
         df_kpi_filtered_city['Город'].notna() &
         (df_kpi_filtered_city['Город'].astype(str).str.strip() != '')
@@ -735,6 +668,70 @@ if df_kpi_filtered is not None and 'Город' in df_kpi_filtered.columns:
         st.info("Нет данных по городам для вышедших кандидатов.")
 else:
     st.info("Для отображения блока 'Вышедшие первогигеры по городам' загрузите файл KPI с полем 'Город'.")
+
+# ---- 9. График по источникам (вышедшие из KPI) ----
+if df_kpi_filtered is not None:
+    st.subheader("📊 Кол-во вышедших кандидатов по источникам (с дошедшими)")
+    available_sources_kpi = sorted(df_kpi_filtered['Источник ОМПП'].unique())
+    if not available_sources_kpi:
+        st.warning("Нет доступных источников для отображения.")
+    else:
+        selected_source_for_chart_kpi = st.selectbox("Выберите источник для отображения (вышедшие):", options=available_sources_kpi, key="source_chart_kpi")
+
+        df_chart_kpi = df_kpi_filtered[df_kpi_filtered['Источник ОМПП'] == selected_source_for_chart_kpi]
+        chart_data_kpi = df_chart_kpi.groupby('Рекрутер')['Телефон гигера'].nunique().reset_index()
+        chart_data_kpi.columns = ['Рекрутер', 'Кол-во']
+        chart_data_kpi = chart_data_kpi.sort_values('Кол-во', ascending=False)
+
+        if chart_data_kpi.empty:
+            st.info("Нет данных для выбранного источника.")
+        else:
+            fig_kpi = px.bar(
+                chart_data_kpi,
+                x='Кол-во',
+                y='Рекрутер',
+                orientation='h',
+                title=f"Источник: {selected_source_for_chart_kpi}",
+                labels={'Кол-во': 'Кол-во вышедших кандидатов', 'Рекрутер': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Greens',
+                height=500
+            )
+            fig_kpi.update_traces(textposition='outside')
+            fig_kpi.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_kpi, use_container_width=True)
+
+        # ---- 9a. Детальная таблица по источникам (вышедшие из KPI) ----
+        st.subheader("📋 Вышедшие по источникам и рекрутерам")
+        detail_kpi = df_kpi_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон гигера'].nunique().reset_index()
+        detail_kpi.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
+
+        recruiter_total_kpi = detail_kpi.groupby('Рекрутер')['Кол-во'].sum().reset_index()
+        recruiter_total_kpi.columns = ['Рекрутер', 'Всего_рекрутер']
+
+        grand_total_kpi = detail_kpi['Кол-во'].sum()
+
+        detail_kpi = detail_kpi.merge(recruiter_total_kpi, on='Рекрутер', how='left')
+        detail_kpi['% от рекрутера'] = (detail_kpi['Кол-во'] / detail_kpi['Всего_рекрутер'] * 100).round(1)
+        detail_kpi['% от всех'] = (detail_kpi['Кол-во'] / grand_total_kpi * 100).round(1)
+
+        detail_kpi['% от рекрутера'] = detail_kpi['% от рекрутера'].astype(str) + '%'
+        detail_kpi['% от всех'] = detail_kpi['% от всех'].astype(str) + '%'
+
+        detail_kpi = detail_kpi.sort_values(['Рекрутер', 'Кол-во'], ascending=[True, False])
+
+        st.dataframe(
+            detail_kpi[['Рекрутер', 'Источник ОМПП', 'Кол-во', '% от рекрутера', '% от всех']],
+            use_container_width=True,
+            column_config={
+                "Рекрутер": st.column_config.TextColumn("Рекрутер", width="auto"),
+                "Источник ОМПП": st.column_config.TextColumn("Источник ОМПП", width="auto"),
+                "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d", width="auto"),
+                "% от рекрутера": st.column_config.TextColumn("% от рекрутера", width="auto"),
+                "% от всех": st.column_config.TextColumn("% от всех", width="auto"),
+            }
+        )
 
 # ---- Статистика в сайдбаре ----
 if df_main_filtered is not None:
