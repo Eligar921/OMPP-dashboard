@@ -34,7 +34,8 @@ if uploaded_file is not None:
     )
     col_coord_status = find_column(['статус координатора', 'статус координатор'])
     col_lead_status = find_column(['статус лида'])
-    col_city = find_column(['город'])
+    # Для города ищем точное совпадение "Город", а затем по ключевым словам
+    col_city = find_column(['город'], exact_match='Город')
     col_project_group = find_column(['желаемые проекты (группа)', 'группа'])
     col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
 
@@ -84,12 +85,14 @@ if uploaded_file is not None:
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
-    # ---- Сохраняем исходный df для диагностики ----
+    # ---- Очищаем источник от пробелов и приводим к строке ----
+    df['Источник ОМПП'] = df['Источник ОМПП'].astype(str).str.strip()
+    df.loc[df['Источник ОМПП'] == 'nan', 'Источник ОМПП'] = ''  # заменяем 'nan' на пустую строку
+
+    # ---- Сохраняем исходный df для диагностики (после очистки источника) ----
     df_raw = df.copy()
 
-    # ---- Исключаем пустые источники (очищаем от пробелов) ----
-    # Приводим источник к строке и убираем пробелы
-    df['Источник ОМПП'] = df['Источник ОМПП'].astype(str).str.strip()
+    # ---- Исключаем пустые источники ----
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
     # ---- Применяем фильтр по дате звонка ----
@@ -109,24 +112,37 @@ if uploaded_file is not None:
     st.sidebar.markdown("---")
     st.sidebar.subheader("🔍 Диагностика фильтра")
 
-    # 1. Всего Москва в исходном файле (до любых фильтров)
     if 'Город' in df_raw.columns:
+        # Приводим город к строке и убираем пробелы
         df_raw['Город'] = df_raw['Город'].astype(str).str.strip()
+        df['Город'] = df['Город'].astype(str).str.strip()
+
+        # 1. Всего Москва в исходном файле (после очистки источника)
         total_moscow_raw = len(df_raw[df_raw['Город'].str.contains('москва', case=False, na=False)])
         st.sidebar.write(f"**Всего Москва в исходном файле:** {total_moscow_raw}")
 
-        # 2. Москва с пустым источником (в исходном файле)
+        # 2. Москва с пустым источником (в исходном файле, после очистки)
+        # Считаем пустым: NaN или пустая строка '' (после strip)
+        empty_source_mask = df_raw['Источник ОМПП'].isna() | (df_raw['Источник ОМПП'] == '')
         moscow_empty_source = len(df_raw[
             df_raw['Город'].str.contains('москва', case=False, na=False) &
-            ((df_raw['Источник ОМПП'].isna()) | (df_raw['Источник ОМПП'].astype(str).str.strip() == ''))
+            empty_source_mask
         ])
         st.sidebar.write(f"**Москва с пустым источником:** {moscow_empty_source}")
 
+        # Покажем примеры таких записей
+        if moscow_empty_source > 0:
+            examples = df_raw[
+                df_raw['Город'].str.contains('москва', case=False, na=False) &
+                empty_source_mask
+            ]
+            st.sidebar.write(f"**Примеры записей с Москвой и пустым источником (первые 5):**")
+            st.sidebar.dataframe(
+                examples[['Телефон', 'Дата направления', 'Дата последнего звонка', 'Источник ОМПП']].head(5)
+            )
+
         # 3. Москва после исключения пустых источников (до фильтра по звонку)
-        df_before = df_raw[
-            df_raw['Источник ОМПП'].notna() &
-            (df_raw['Источник ОМПП'].astype(str).str.strip() != '')
-        ]
+        df_before = df_raw[~empty_source_mask]  # не пустой источник
         moscow_before = len(df_before[df_before['Город'].str.contains('москва', case=False, na=False)])
         st.sidebar.write(f"**Москва после исключения пустых источников:** {moscow_before}")
 
@@ -134,18 +150,10 @@ if uploaded_file is not None:
         moscow_after = len(df[df['Город'].str.contains('москва', case=False, na=False)])
         st.sidebar.write(f"**Москва после фильтра по звонку:** {moscow_after}")
 
-        # Покажем примеры строк с Москвой и пустым источником
-        moscow_empty_examples = df_raw[
-            df_raw['Город'].str.contains('москва', case=False, na=False) &
-            ((df_raw['Источник ОМПП'].isna()) | (df_raw['Источник ОМПП'].astype(str).str.strip() == ''))
-        ]
-        if not moscow_empty_examples.empty:
-            st.sidebar.write(f"**Примеры записей с Москвой и пустым источником (первые 5):**")
-            st.sidebar.dataframe(
-                moscow_empty_examples[['Телефон', 'Дата направления', 'Дата последнего звонка', 'Источник ОМПП']].head(5)
-            )
-        else:
-            st.sidebar.write("Нет записей с Москвой и пустым источником.")
+        # 5. Количество отброшенных по дате звонка (среди Москвы)
+        dropped_by_call = moscow_before - moscow_after
+        st.sidebar.write(f"**Отброшено по дате звонка (Москва):** {dropped_by_call}")
+
     else:
         st.sidebar.warning("Столбец 'Город' не найден.")
 
