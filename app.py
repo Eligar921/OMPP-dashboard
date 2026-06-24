@@ -18,9 +18,9 @@ def normalize_project(project_name):
         return 'Магнит'
     if project_name == 'ООО "Таймбук"':
         return 'Гулливер'
-    return project_name
     if project_name == 'Магнит ':
         return 'Магнит'
+    return project_name
 
 # ---- Функция поиска столбца ----
 def find_column(df, keywords, exact_match=None):
