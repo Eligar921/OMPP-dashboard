@@ -38,23 +38,25 @@ def parse_diagram_date(date_str):
     if not isinstance(date_str, str):
         return pd.NaT
     date_str = date_str.strip()
+    # Пробуем стандартный парсинг
     try:
         return pd.to_datetime(date_str, errors='coerce')
     except:
         pass
+    # Парсим формат "dd.mmm" (например, "01.фев")
     month_map = {
-        'янв': 'Jan', 'фев': 'Feb', 'мар': 'Mar', 'апр': 'Apr',
-        'май': 'May', 'июн': 'Jun', 'июл': 'Jul', 'авг': 'Aug',
-        'сен': 'Sep', 'окт': 'Oct', 'ноя': 'Nov', 'дек': 'Dec'
+        'янв': 1, 'фев': 2, 'мар': 3, 'апр': 4,
+        'май': 5, 'июн': 6, 'июл': 7, 'авг': 8,
+        'сен': 9, 'окт': 10, 'ноя': 11, 'дек': 12
     }
-    match = re.match(r'^(\d{2})\.(\w{3})$', date_str)
+    match = re.match(r'^(\d{1,2})\.(\w{3})$', date_str)
     if match:
         day, month_ru = match.groups()
-        month_en = month_map.get(month_ru.lower())
-        if month_en:
-            year = 2026
+        month_num = month_map.get(month_ru.lower())
+        if month_num:
+            year = 2026  # Все даты в данных около 2026 года
             try:
-                return pd.to_datetime(f"{day} {month_en} {year}", format='%d %b %Y')
+                return pd.to_datetime(f"{year}-{month_num:02d}-{int(day):02d}")
             except:
                 return pd.NaT
     return pd.NaT
@@ -371,18 +373,38 @@ if df_responses is not None:
         all_recruiters.update(df_responses[col_recr_resp].dropna().unique())
 all_recruiters = sorted(all_recruiters)
 
-# По умолчанию выбираем только тех, кто есть в списке default_recruiters и присутствует в данных
-default_selected = [r for r in default_recruiters if r in all_recruiters]
-# Если никого из списка нет, показываем всех (чтобы не было пустого экрана)
-if not default_selected:
-    default_selected = all_recruiters
+# Инициализация состояния для выбора рекрутеров
+if 'selected_recruiters_state' not in st.session_state:
+    # По умолчанию выбираем только тех, кто есть в списке default_recruiters и присутствует в данных
+    default_selected = [r for r in default_recruiters if r in all_recruiters]
+    # Если никого из списка нет, показываем всех (чтобы не было пустого экрана)
+    if not default_selected:
+        default_selected = all_recruiters
+    st.session_state.selected_recruiters_state = default_selected
+    st.session_state.previous_selection = default_selected
+
+# Кнопка для исключения уволенных рекрутеров
+if st.sidebar.button("Исключить уволенных рекрутеров"):
+    # Выбираем только тех, кто в списке default_recruiters
+    filtered = [r for r in default_recruiters if r in all_recruiters]
+    if filtered:
+        st.session_state.selected_recruiters_state = filtered
+        st.session_state.previous_selection = filtered
+    else:
+        # Если никого нет, оставляем текущий выбор
+        pass
 
 selected_recruiters = st.sidebar.multiselect(
     "Рекрутеры",
     options=all_recruiters,
-    default=default_selected,
+    default=st.session_state.selected_recruiters_state,
     key="recruiter_filter_global"
 )
+
+# Обновляем состояние при изменении мультиселекта
+if selected_recruiters != st.session_state.selected_recruiters_state:
+    st.session_state.selected_recruiters_state = selected_recruiters
+    st.session_state.previous_selection = selected_recruiters
 
 # ---- Применение фильтров к основному отчету ----
 if df_main is not None and selected_sources:
@@ -738,31 +760,23 @@ if df_main_filtered is not None and 'Желаемые проекты (Групп
 else:
     st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-# ---- 4. Вышедшие по проектам (из приглашенных) ----
+# ---- 4. Вышедшие по проектам (объединённый блок) ----
+st.subheader("✅ Вышедшие по проектам")
+
+# Данные по проектам из основного отчёта
 if df_main_filtered is not None:
+    # Определяем вышедших из приглашенных (из основного отчёта)
     if 'Статус координатора' in df_main_filtered.columns:
-        df_worked = df_main_filtered[df_main_filtered['Статус координатора'] == 'went_work']
+        df_worked_main = df_main_filtered[df_main_filtered['Статус координатора'] == 'went_work']
     else:
-        df_worked = df_main_filtered[df_main_filtered['Статус лида'] == 'worked']
-
-    if not df_worked.empty and 'Проект первой подтвержденной смены' in df_worked.columns:
-        st.subheader("✅ Вышедшие по проектам (из приглашенных)")
-
-        source_options = ['Все'] + sorted(df_worked['Источник ОМПП'].unique())
-        selected_source_worked = st.selectbox(
-            "Выберите источник для фильтрации вышедших:",
-            options=source_options,
-            key="worked_source_project"
-        )
-
-        if selected_source_worked == 'Все':
-            df_worked_filtered = df_worked
-            df_all_filtered = df_main_filtered
-        else:
-            df_worked_filtered = df_worked[df_worked['Источник ОМПП'] == selected_source_worked]
-            df_all_filtered = df_main_filtered[df_main_filtered['Источник ОМПП'] == selected_source_worked]
-
-        df_projects_all = df_all_filtered.copy()
+        df_worked_main = df_main_filtered[df_main_filtered['Статус лида'] == 'worked']
+    
+    # Если нет данных о вышедших, создаём пустой DataFrame
+    if df_worked_main.empty or 'Проект первой подтвержденной смены' not in df_worked_main.columns:
+        main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
+    else:
+        # Приглашенные по проектам (все кандидаты)
+        df_projects_all = df_main_filtered.copy()
         if 'Желаемые проекты (Клиент)' in df_projects_all.columns:
             df_projects_all['Проект'] = df_projects_all.apply(
                 lambda row: normalize_project(row['Желаемые проекты (Клиент)']) if row['Желаемые проекты (Группа)'] == 'Без группы' else normalize_project(row['Желаемые проекты (Группа)']),
@@ -770,36 +784,73 @@ if df_main_filtered is not None:
             )
         else:
             df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)'].apply(normalize_project)
-
+        
         df_projects_all = df_projects_all[df_projects_all['Проект'].notna() & (df_projects_all['Проект'] != '')]
         invited_counts = df_projects_all.groupby('Проект')['Телефон'].nunique().reset_index()
         invited_counts.columns = ['Проект', 'Кол-во приглашенных']
+        
+        # Вышедшие из приглашенных
+        df_worked_main['Проект'] = df_worked_main['Проект первой подтвержденной смены'].apply(normalize_project)
+        worked_main_counts = df_worked_main.groupby('Проект')['Телефон'].nunique().reset_index()
+        worked_main_counts.columns = ['Проект', 'Кол-во вышедших (из приглашенных)']
+        
+        main_project_data = pd.merge(invited_counts, worked_main_counts, on='Проект', how='outer').fillna(0)
+        main_project_data['Кол-во приглашенных'] = main_project_data['Кол-во приглашенных'].astype(int)
+        main_project_data['Кол-во вышедших (из приглашенных)'] = main_project_data['Кол-во вышедших (из приглашенных)'].astype(int)
+else:
+    main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
 
-        df_worked_filtered['Проект'] = df_worked_filtered['Проект первой подтвержденной смены'].apply(normalize_project)
-        worked_counts = df_worked_filtered.groupby('Проект')['Телефон'].nunique().reset_index()
-        worked_counts.columns = ['Проект', 'Кол-во вышедших']
+# Данные из KPI (вышедшие с дошедшими)
+if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
+    kpi_project_counts = df_kpi_filtered.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
+    kpi_project_counts.columns = ['Проект', 'Кол-во вышедших (с дошедшими)']
+    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
+else:
+    kpi_project_counts = pd.DataFrame(columns=['Проект', 'Кол-во вышедших (с дошедшими)'])
 
-        merged = pd.merge(invited_counts, worked_counts, on='Проект', how='outer').fillna(0)
-        merged['Кол-во приглашенных'] = merged['Кол-во приглашенных'].astype(int)
-        merged['Кол-во вышедших'] = merged['Кол-во вышедших'].astype(int)
-        merged['Конверсия, %'] = (merged['Кол-во вышедших'] / merged['Кол-во приглашенных'] * 100).round(1)
-        merged['Конверсия, %'] = merged['Конверсия, %'].fillna(0).astype(str) + '%'
-        merged = merged.sort_values('Кол-во приглашенных', ascending=False)
+# Объединяем и нормализуем проекты
+if not main_project_data.empty:
+    main_project_data['Проект'] = main_project_data['Проект'].apply(lambda x: normalize_project(x).strip())
+if not kpi_project_counts.empty:
+    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
 
-        st.dataframe(
-            merged,
-            use_container_width=True,
-            column_config={
-                "Проект": st.column_config.TextColumn("Проект", width="auto"),
-                "Кол-во приглашенных": st.column_config.NumberColumn("Кол-во приглашенных", format="%d", width="auto"),
-                "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d", width="auto"),
-                "Конверсия, %": st.column_config.TextColumn("Конверсия, %", width="auto"),
-            }
-        )
+merged_projects = pd.merge(main_project_data, kpi_project_counts, on='Проект', how='outer').fillna(0)
+for col in ['Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)', 'Кол-во вышедших (с дошедшими)']:
+    if col in merged_projects.columns:
+        merged_projects[col] = merged_projects[col].astype(int)
     else:
-        st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
+        merged_projects[col] = 0
 
-# ---- 5. Объединённый блок: Статистика по городам (переименован) ----
+# Конверсии
+merged_projects['Конв. из приглашенных в вышедших из пригл., %'] = (
+    merged_projects['Кол-во вышедших (из приглашенных)'] / merged_projects['Кол-во приглашенных'] * 100
+).round(1).fillna(0).astype(str) + '%'
+
+merged_projects['Конв. из приглашенных в вышедших с дошедшими, %'] = (
+    merged_projects['Кол-во вышедших (с дошедшими)'] / merged_projects['Кол-во приглашенных'] * 100
+).round(1).fillna(0).astype(str) + '%'
+
+# Сортировка по количеству приглашенных
+merged_projects = merged_projects.sort_values('Кол-во приглашенных', ascending=False)
+
+# Отображаем таблицу
+if not merged_projects.empty and merged_projects['Кол-во приглашенных'].sum() > 0:
+    st.dataframe(
+        merged_projects,
+        use_container_width=True,
+        column_config={
+            "Проект": st.column_config.TextColumn("Проект", width="auto"),
+            "Кол-во приглашенных": st.column_config.NumberColumn("Кол-во приглашенных", format="%d", width="auto"),
+            "Кол-во вышедших (из приглашенных)": st.column_config.NumberColumn("Кол-во вышедших (из приглашенных)", format="%d", width="auto"),
+            "Конв. из приглашенных в вышедших из пригл., %": st.column_config.TextColumn("Конв. из приглашенных в вышедших из пригл., %", width="auto"),
+            "Кол-во вышедших (с дошедшими)": st.column_config.NumberColumn("Кол-во вышедших (с дошедшими)", format="%d", width="auto"),
+            "Конв. из приглашенных в вышедших с дошедшими, %": st.column_config.TextColumn("Конв. из приглашенных в вышедших с дошедшими, %", width="auto"),
+        }
+    )
+else:
+    st.info("Нет данных по проектам для вышедших кандидатов.")
+
+# ---- 5. Объединённый блок: Статистика по городам ----
 st.subheader("🏙️ Статистика по городам")
 
 # Подготовка данных по городам
@@ -884,41 +935,7 @@ if city_data:
 else:
     st.info("Нет данных по городам.")
 
-# ---- 6. Вышедшие по проектам (с дошедшими) из KPI ----
-if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
-    st.subheader("✅ Вышедшие по проектам (с дошедшими)")
-
-    source_options_kpi = ['Все'] + sorted(df_kpi_filtered['Источник ОМПП'].unique())
-    selected_source_kpi = st.selectbox(
-        "Выберите источник для фильтрации (вышедшие):",
-        options=source_options_kpi,
-        key="kpi_source_project"
-    )
-
-    if selected_source_kpi == 'Все':
-        df_kpi_filtered_for_project = df_kpi_filtered
-    else:
-        df_kpi_filtered_for_project = df_kpi_filtered[df_kpi_filtered['Источник ОМПП'] == selected_source_kpi]
-
-    kpi_project_counts = df_kpi_filtered_for_project.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
-    kpi_project_counts.columns = ['Проект', 'Кол-во вышедших']
-    kpi_project_counts = kpi_project_counts.sort_values('Кол-во вышедших', ascending=False)
-
-    if not kpi_project_counts.empty:
-        st.dataframe(
-            kpi_project_counts,
-            use_container_width=True,
-            column_config={
-                "Проект": st.column_config.TextColumn("Проект", width="auto"),
-                "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d", width="auto"),
-            }
-        )
-    else:
-        st.info("Нет данных по проектам для вышедших кандидатов.")
-else:
-    st.info("Для отображения блока 'Вышедшие по проектам (с дошедшими)' загрузите файл KPI с полем 'Клиент'.")
-
-# ---- 7. График по источникам (вышедшие из KPI) ----
+# ---- 6. График по источникам (вышедшие из KPI) ----
 if df_kpi_filtered is not None:
     st.subheader("📊 Кол-во вышедших кандидатов по источникам (с дошедшими)")
     available_sources_kpi = sorted(df_kpi_filtered['Источник ОМПП'].unique())
@@ -981,7 +998,7 @@ if df_kpi_filtered is not None:
             }
         )
 
-# ---- 8. Блок: Обработка откликов (таблица) ----
+# ---- 7. Блок: Обработка откликов (таблица) ----
 if merged_resp is not None:
     st.subheader("📋 Обработка откликов")
     st.dataframe(
@@ -1000,7 +1017,7 @@ if merged_resp is not None:
         }
     )
 
-# ---- 9. Диаграмма "Время обработки откликов в рабочее время" (горизонтальная) ----
+# ---- 8. Диаграмма "Время обработки откликов в рабочее время" (горизонтальная) ----
 if df_diagram is not None:
     st.subheader("📊 Время обработки откликов в рабочее время")
     try:
@@ -1009,20 +1026,21 @@ if df_diagram is not None:
         row_less_hour = None
         date_row = None
 
-        # Ищем строки с данными
+        # Ищем строки с данными по всей строке (не только в первом столбце)
         for idx, row in df_diagram_reset.iterrows():
-            first_cell = str(row.iloc[0]).strip().lower()
-            if 'в течение 15 минут' in first_cell:
+            # Преобразуем все ячейки строки в строки и объединяем
+            row_str = ' '.join([str(cell).strip().lower() for cell in row if pd.notna(cell)])
+            if 'в течение 15 минут' in row_str:
                 row_15min = idx
-            elif 'менее часа' in first_cell:
+            if 'менее часа' in row_str:
                 row_less_hour = idx
-            # Ищем строку с датами: проверяем все ячейки, начиная со второй
+            # Ищем строку с датами: проверяем все ячейки
             if date_row is None:
-                for col in range(1, len(row)):
+                for col in range(len(row)):
                     cell_val = row.iloc[col]
                     if pd.notna(cell_val):
                         cell_str = str(cell_val).strip()
-                        if re.match(r'^\d{2}\.\w{3}$', cell_str) or re.match(r'^\d{4}-\d{2}-\d{2}', cell_str):
+                        if re.match(r'^\d{1,2}\.\w{3}$', cell_str) or re.match(r'^\d{4}-\d{2}-\d{2}', cell_str):
                             date_row = idx
                             break
 
@@ -1033,6 +1051,7 @@ if df_diagram is not None:
         if row_less_hour is None:
             row_less_hour = 2
 
+        # Собираем даты и значения
         dates = []
         for col in range(1, len(df_diagram_reset.columns)):
             val = df_diagram_reset.iloc[date_row, col]
