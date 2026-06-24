@@ -146,7 +146,7 @@ if uploaded_file is not None:
 
     df_filtered = df_filtered.reset_index(drop=True)
 
-    # ---- 1. Таблица рекрутеров (с добавленным столбцом "Вышло из приглашенных") ----
+        # ---- 1. Таблица рекрутеров (с добавленными столбцами) ----
     # Считаем количество приглашенных (уникальные телефоны)
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
@@ -161,6 +161,10 @@ if uploaded_file is not None:
     else:
         recruiter_counts['Вышло из приглашенных'] = 0
 
+    # Добавляем конверсию
+    recruiter_counts['Конверсия, %'] = (recruiter_counts['Вышло из приглашенных'] / recruiter_counts['Кол-во кандидатов'] * 100).round(1)
+    recruiter_counts['Конверсия, %'] = recruiter_counts['Конверсия, %'].fillna(0).astype(str) + '%'
+
     recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
 
     st.subheader("📋 Количество направленных кандидатов по рекрутерам")
@@ -171,6 +175,7 @@ if uploaded_file is not None:
             "Рекрутер": st.column_config.TextColumn("Рекрутер", width="medium"),
             "Кол-во кандидатов": st.column_config.NumberColumn("Кол-во кандидатов", width="small"),
             "Вышло из приглашенных": st.column_config.NumberColumn("Вышло из приглашенных", width="small"),
+            "Конверсия, %": st.column_config.TextColumn("Конверсия, %", width="small"),
         }
     )
 
