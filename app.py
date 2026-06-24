@@ -37,30 +37,47 @@ def find_column(df, keywords, exact_match=None):
 
 # ---- Функция для парсинга даты из заголовков "Диаграмма" ----
 def parse_diagram_date(date_str):
-    if not isinstance(date_str, str):
+    if pd.isna(date_str):
         return pd.NaT
-    date_str = date_str.strip()
-    # Пробуем стандартный парсинг
-    try:
-        return pd.to_datetime(date_str, errors='coerce')
-    except:
-        pass
-    # Парсим формат "dd.mmm" (например, "01.фев")
+
+    date_str = str(date_str).strip().lower()
+
+    # Сначала пробуем обычное преобразование
+    dt = pd.to_datetime(date_str, errors='coerce')
+
+    if pd.notna(dt):
+        return dt
+
+    # Русские сокращения месяцев
     month_map = {
-        'янв': 1, 'фев': 2, 'мар': 3, 'апр': 4,
-        'май': 5, 'июн': 6, 'июл': 7, 'авг': 8,
-        'сен': 9, 'окт': 10, 'ноя': 11, 'дек': 12
+        'янв': 1,
+        'фев': 2,
+        'мар': 3,
+        'апр': 4,
+        'май': 5,
+        'июн': 6,
+        'июл': 7,
+        'авг': 8,
+        'сен': 9,
+        'окт': 10,
+        'ноя': 11,
+        'дек': 12
     }
-    match = re.match(r'^(\d{1,2})\.(\w{3})$', date_str)
+
+    # Формат: 01.фев, 15.май и т.п.
+    match = re.match(r'(\d{1,2})\.(\D+)', date_str)
+
     if match:
-        day, month_ru = match.groups()
-        month_num = month_map.get(month_ru.lower())
-        if month_num:
-            year = 2026  # Все даты в данных около 2026 года
-            try:
-                return pd.to_datetime(f"{year}-{month_num:02d}-{int(day):02d}")
-            except:
-                return pd.NaT
+        day = int(match.group(1))
+        month_name = match.group(2).strip()[:3]
+
+        if month_name in month_map:
+            return pd.Timestamp(
+                year=2026,
+                month=month_map[month_name],
+                day=day
+            )
+
     return pd.NaT
 
 # ---- Загрузка основного файла (направления) ----
