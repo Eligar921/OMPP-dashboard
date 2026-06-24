@@ -23,7 +23,7 @@ if uploaded_file is not None:
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
     col_source = find_column(['источник омпп', 'источник'])
-col_last_call = find_column([
+    col_last_call = find_column([
     'дата последнего звонка до первого статуса первой смены',
     'последнего звонка до первого статуса',
     'последнего звонка',
