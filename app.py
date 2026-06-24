@@ -5,6 +5,19 @@ import plotly.express as px
 st.set_page_config(page_title="ОМПП Дашборд", layout="wide")
 st.title("📊 Дашборд ОМПП")
 
+# Функция нормализации названий проектов
+def normalize_project(project_name):
+    if not isinstance(project_name, str):
+        return project_name
+    project_name = project_name.strip()
+    if project_name == 'Пятёрочка агентская':
+        return 'Пятёрочка'
+    if project_name == 'Магнит Косметик':
+        return 'Магнит'
+    if project_name == 'ООО "Таймбук"':
+        return 'Гулливер'
+    return project_name
+
 uploaded_file = st.file_uploader("Загрузите Excel файл 'отчет по дате направления'", type=["xlsx"])
 
 if uploaded_file is not None:
@@ -212,13 +225,14 @@ if uploaded_file is not None:
     if 'Желаемые проекты (Группа)' in df_filtered.columns:
         st.subheader("📊 Приглашенные по проектам")
         df_projects = df_filtered.copy()
+        # Формируем столбец "Проект" с учётом "Без группы" и нормализацией
         if 'Желаемые проекты (Клиент)' in df_projects.columns:
             df_projects['Проект'] = df_projects.apply(
-                lambda row: row['Желаемые проекты (Клиент)'] if row['Желаемые проекты (Группа)'] == 'Без группы' else row['Желаемые проекты (Группа)'],
+                lambda row: normalize_project(row['Желаемые проекты (Клиент)']) if row['Желаемые проекты (Группа)'] == 'Без группы' else normalize_project(row['Желаемые проекты (Группа)']),
                 axis=1
             )
         else:
-            df_projects['Проект'] = df_projects['Желаемые проекты (Группа)']
+            df_projects['Проект'] = df_projects['Желаемые проекты (Группа)'].apply(normalize_project)
 
         df_projects = df_projects[df_projects['Проект'].notna() & (df_projects['Проект'] != '')]
 
@@ -272,23 +286,23 @@ if uploaded_file is not None:
             df_worked_filtered = df_worked[df_worked['Источник ОМПП'] == selected_source_worked]
             df_all_filtered = df_filtered[df_filtered['Источник ОМПП'] == selected_source_worked]
 
-        # Приглашенные по проектам (все направленные)
-        # Используем ту же логику, что и в блоке приглашенных
+        # Приглашенные по проектам (все направленные) с нормализацией
         df_projects_all = df_all_filtered.copy()
         if 'Желаемые проекты (Клиент)' in df_projects_all.columns:
             df_projects_all['Проект'] = df_projects_all.apply(
-                lambda row: row['Желаемые проекты (Клиент)'] if row['Желаемые проекты (Группа)'] == 'Без группы' else row['Желаемые проекты (Группа)'],
+                lambda row: normalize_project(row['Желаемые проекты (Клиент)']) if row['Желаемые проекты (Группа)'] == 'Без группы' else normalize_project(row['Желаемые проекты (Группа)']),
                 axis=1
             )
         else:
-            df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)']
+            df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)'].apply(normalize_project)
 
         df_projects_all = df_projects_all[df_projects_all['Проект'].notna() & (df_projects_all['Проект'] != '')]
         invited_counts = df_projects_all.groupby('Проект')['Телефон'].nunique().reset_index()
         invited_counts.columns = ['Проект', 'Кол-во приглашенных']
 
-        # Вышедшие по проекту
-        worked_counts = df_worked_filtered.groupby('Проект первой подтвержденной смены')['Телефон'].nunique().reset_index()
+        # Вышедшие по проекту (нормализуем название проекта)
+        df_worked_filtered['Проект'] = df_worked_filtered['Проект первой подтвержденной смены'].apply(normalize_project)
+        worked_counts = df_worked_filtered.groupby('Проект')['Телефон'].nunique().reset_index()
         worked_counts.columns = ['Проект', 'Кол-во вышедших']
 
         # Объединяем
