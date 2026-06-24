@@ -247,7 +247,7 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- 4. ВЫШЕДШИЕ ПО ПРОЕКТАМ (таблица) ----
+    # ---- 4. Вышедшие по проектам (с добавлением кол-ва приглашенных и конверсии) ----
     # Определяем "вышедших" по статусу координатора или лида
     if 'Статус координатора' in df_filtered.columns:
         df_worked = df_filtered[df_filtered['Статус координатора'] == 'went_work']
@@ -264,105 +264,94 @@ if uploaded_file is not None:
             key="worked_source_project"
         )
 
+        # Фильтруем данные по источнику
         if selected_source_worked == 'Все':
             df_worked_filtered = df_worked
+            df_all_filtered = df_filtered
         else:
             df_worked_filtered = df_worked[df_worked['Источник ОМПП'] == selected_source_worked]
+            df_all_filtered = df_filtered[df_filtered['Источник ОМПП'] == selected_source_worked]
 
-        worked_projects = df_worked_filtered.groupby('Проект первой подтвержденной смены')['Телефон'].nunique().reset_index()
-        worked_projects.columns = ['Проект', 'Кол-во вышедших']
-        total_worked = worked_projects['Кол-во вышедших'].sum()
-        if total_worked > 0:
-            worked_projects['% от всех вышедших'] = (worked_projects['Кол-во вышедших'] / total_worked * 100).round(1).astype(str) + '%'
+        # Приглашенные по проектам (все направленные)
+        # Используем ту же логику, что и в блоке приглашенных
+        df_projects_all = df_all_filtered.copy()
+        if 'Желаемые проекты (Клиент)' in df_projects_all.columns:
+            df_projects_all['Проект'] = df_projects_all.apply(
+                lambda row: row['Желаемые проекты (Клиент)'] if row['Желаемые проекты (Группа)'] == 'Без группы' else row['Желаемые проекты (Группа)'],
+                axis=1
+            )
         else:
-            worked_projects['% от всех вышедших'] = '0%'
-        worked_projects = worked_projects.sort_values('Кол-во вышедших', ascending=False)
+            df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)']
+
+        df_projects_all = df_projects_all[df_projects_all['Проект'].notna() & (df_projects_all['Проект'] != '')]
+        invited_counts = df_projects_all.groupby('Проект')['Телефон'].nunique().reset_index()
+        invited_counts.columns = ['Проект', 'Кол-во приглашенных']
+
+        # Вышедшие по проекту
+        worked_counts = df_worked_filtered.groupby('Проект первой подтвержденной смены')['Телефон'].nunique().reset_index()
+        worked_counts.columns = ['Проект', 'Кол-во вышедших']
+
+        # Объединяем
+        merged = pd.merge(invited_counts, worked_counts, on='Проект', how='outer').fillna(0)
+        merged['Кол-во приглашенных'] = merged['Кол-во приглашенных'].astype(int)
+        merged['Кол-во вышедших'] = merged['Кол-во вышедших'].astype(int)
+        merged['Конверсия, %'] = (merged['Кол-во вышедших'] / merged['Кол-во приглашенных'] * 100).round(1)
+        merged['Конверсия, %'] = merged['Конверсия, %'].fillna(0).astype(str) + '%'
+        merged = merged.sort_values('Кол-во приглашенных', ascending=False)
 
         st.dataframe(
-            worked_projects,
+            merged,
             use_container_width=True,
             column_config={
                 "Проект": "Проект",
+                "Кол-во приглашенных": st.column_config.NumberColumn("Кол-во приглашенных", format="%d"),
                 "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d"),
-                "% от всех вышедших": st.column_config.TextColumn("% от всех вышедших"),
+                "Конверсия, %": st.column_config.TextColumn("Конверсия, %"),
             }
         )
     else:
         st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
 
-    # ---- 5. Приглашенные по городам (только таблица) ----
+    # ---- 5. Приглашенные и вышедшие по городам (объединённый блок) ----
     if 'Город' in df_filtered.columns:
-        st.subheader("🏙️ Приглашенные по городам")
+        st.subheader("🏙️ Приглашенные и вышедшие по городам")
 
-        city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'].astype(str).str.strip() != '')].copy()
-        city_data['Город'] = city_data['Город'].astype(str).str.strip()
+        # Приглашенные: группировка по "Город"
+        city_invited = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'].astype(str).str.strip() != '')].copy()
+        city_invited['Город'] = city_invited['Город'].astype(str).str.strip()
+        invited_city = city_invited.groupby('Город')['Телефон'].nunique().reset_index()
+        invited_city.columns = ['Город', 'Кол-во приглашенных']
 
-        if not city_data.empty:
-            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
-            city_counts.columns = ['Город', 'Кол-во']
-            total_candidates = df_filtered['Телефон'].nunique()
-            city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
-            city_counts = city_counts.sort_values('Кол-во', ascending=False)
-
-            st.dataframe(
-                city_counts,
-                use_container_width=True,
-                column_config={
-                    "Город": "Город",
-                    "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
-                    "% от всех": st.column_config.TextColumn("% от всех"),
-                }
-            )
+        # Вышедшие: группировка по "Город первой подтвержденной смены за всю жизнь"
+        if not df_worked.empty and 'Город первой подтвержденной смены за всю жизнь' in df_worked.columns:
+            city_worked = df_worked[df_worked['Город первой подтвержденной смены за всю жизнь'].notna() &
+                                    (df_worked['Город первой подтвержденной смены за всю жизнь'].astype(str).str.strip() != '')].copy()
+            city_worked['Город'] = city_worked['Город первой подтвержденной смены за всю жизнь'].astype(str).str.strip()
+            worked_city = city_worked.groupby('Город')['Телефон'].nunique().reset_index()
+            worked_city.columns = ['Город', 'Кол-во вышедших']
         else:
-            st.info("Нет данных по городам.")
+            worked_city = pd.DataFrame(columns=['Город', 'Кол-во вышедших'])
+
+        # Объединяем
+        merged_city = pd.merge(invited_city, worked_city, on='Город', how='outer').fillna(0)
+        merged_city['Кол-во приглашенных'] = merged_city['Кол-во приглашенных'].astype(int)
+        merged_city['Кол-во вышедших'] = merged_city['Кол-во вышедших'].astype(int)
+        merged_city['Конверсия, %'] = (merged_city['Кол-во вышедших'] / merged_city['Кол-во приглашенных'] * 100).round(1)
+        merged_city['Конверсия, %'] = merged_city['Конверсия, %'].fillna(0).astype(str) + '%'
+        merged_city = merged_city.sort_values('Кол-во приглашенных', ascending=False)
+
+        st.dataframe(
+            merged_city,
+            use_container_width=True,
+            column_config={
+                "Город": "Город",
+                "Кол-во приглашенных": st.column_config.NumberColumn("Кол-во приглашенных", format="%d"),
+                "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d"),
+                "Конверсия, %": st.column_config.TextColumn("Конверсия, %"),
+            }
+        )
     else:
         st.info("Столбец 'Город' не найден, таблица городов пропущена.")
-
-    # ---- 6. ВЫШЕДШИЕ ПО ГОРОДАМ (таблица) ----
-    if not df_worked.empty and 'Город первой подтвержденной смены за всю жизнь' in df_worked.columns:
-        st.subheader("✅ Вышедшие по городам")
-
-        source_options_city = ['Все'] + sorted(df_worked['Источник ОМПП'].unique())
-        selected_source_worked_city = st.selectbox(
-            "Выберите источник для фильтрации вышедших:",
-            options=source_options_city,
-            key="worked_source_city"
-        )
-
-        if selected_source_worked_city == 'Все':
-            df_worked_filtered_city = df_worked
-        else:
-            df_worked_filtered_city = df_worked[df_worked['Источник ОМПП'] == selected_source_worked_city]
-
-        city_worked = df_worked_filtered_city[
-            df_worked_filtered_city['Город первой подтвержденной смены за всю жизнь'].notna() &
-            (df_worked_filtered_city['Город первой подтвержденной смены за всю жизнь'].astype(str).str.strip() != '')
-        ].copy()
-        city_worked['Город'] = city_worked['Город первой подтвержденной смены за всю жизнь'].astype(str).str.strip()
-
-        if not city_worked.empty:
-            worked_cities = city_worked.groupby('Город')['Телефон'].nunique().reset_index()
-            worked_cities.columns = ['Город', 'Кол-во вышедших']
-            total_worked_city = worked_cities['Кол-во вышедших'].sum()
-            if total_worked_city > 0:
-                worked_cities['% от всех вышедших'] = (worked_cities['Кол-во вышедших'] / total_worked_city * 100).round(1).astype(str) + '%'
-            else:
-                worked_cities['% от всех вышедших'] = '0%'
-            worked_cities = worked_cities.sort_values('Кол-во вышедших', ascending=False)
-
-            st.dataframe(
-                worked_cities,
-                use_container_width=True,
-                column_config={
-                    "Город": "Город",
-                    "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d"),
-                    "% от всех вышедших": st.column_config.TextColumn("% от всех вышедших"),
-                }
-            )
-        else:
-            st.info("Нет данных по городам для вышедших кандидатов.")
-    else:
-        st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Город первой подтвержденной смены за всю жизнь'.")
 
     # ---- Статистика в сайдбаре ----
     st.sidebar.markdown("---")
