@@ -98,7 +98,7 @@ if uploaded_file is not None:
     # Тот же месяц
     same_month = (year_call == year_dir) & (month_call == month_dir)
 
- # ---- АВТОФИЛЬТР: дата звонка в текущем или предыдущем месяце ----
+# ---- АВТОФИЛЬТР: дата звонка в текущем или предыдущем месяце ----
 
 year_dir = df['Дата направления'].dt.year
 month_dir = df['Дата направления'].dt.month
@@ -285,7 +285,7 @@ df = df[mask_call]
         ]
 
         if not city_data.empty:
-            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
+            city_counts = city_data.groupby('Город').size().reset_index(name='Кол-во')
             city_counts.columns = ['Город', 'Кол-во']
             total_candidates = df_filtered['Телефон'].nunique()
             city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
