@@ -269,7 +269,7 @@ if uploaded_file is not None:
         df_worked = df_filtered[df_filtered['Статус лида'] == 'worked']
 
     if not df_worked.empty and 'Проект первой подтвержденной смены' in df_worked.columns:
-        st.subheader("✅ Вышедшие по проектам")
+        st.subheader("✅ Вышедшие по проектам (из приглашенных)")
 
         source_options = ['Все'] + sorted(df_worked['Источник ОМПП'].unique())
         selected_source_worked = st.selectbox(
@@ -328,7 +328,7 @@ if uploaded_file is not None:
 
     # ---- 5. Приглашенные и вышедшие по городам (объединённый блок) ----
     if 'Город' in df_filtered.columns:
-        st.subheader("🏙️ Приглашенные и вышедшие по городам")
+        st.subheader("🏙️ Вышедшие по городам из приглашенных")
 
         # Приглашенные: группировка по "Город"
         city_invited = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'].astype(str).str.strip() != '')].copy()
