@@ -9,13 +9,10 @@ uploaded_file = st.file_uploader("Загрузите Excel файл 'отчет 
 
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file, sheet_name=0)
-    
-    # Приведение названий столбцов (удаляем пробелы по краям)
     df.columns = df.columns.str.strip()
-    
-    # Функция поиска столбца по частичному совпадению (регистронезависимо)
+
+    # Функция поиска столбца по ключевым словам
     def find_column(keywords):
-        """Возвращает имя столбца, содержащее хотя бы одно из ключевых слов (без учёта регистра)."""
         for col in df.columns:
             col_lower = col.lower()
             for kw in keywords:
@@ -23,7 +20,6 @@ if uploaded_file is not None:
                     return col
         return None
 
-    # Ищем нужные столбцы
     col_date_direction = find_column(['дата направления', 'направления на координатора'])
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
@@ -32,7 +28,6 @@ if uploaded_file is not None:
     col_coord_status = find_column(['статус координатора', 'статус координатор'])
     col_lead_status = find_column(['статус лида'])
 
-    # Проверка наличия обязательных столбцов
     if col_date_direction is None:
         st.error("❌ Не найден столбец с датой направления. Доступные столбцы: " + ", ".join(df.columns))
         st.stop()
@@ -48,11 +43,7 @@ if uploaded_file is not None:
     if col_last_call is None:
         st.error("❌ Не найден столбец с датой последнего звонка")
         st.stop()
-    if col_coord_status is None and col_lead_status is None:
-        st.error("❌ Не найден ни столбец 'Статус координатора', ни 'Статус лида'")
-        st.stop()
 
-    # Переименовываем для удобства (внутри кода будем использовать стандартные имена)
     rename_map = {
         col_date_direction: 'Дата направления',
         col_phone: 'Телефон',
@@ -67,14 +58,13 @@ if uploaded_file is not None:
 
     df = df.rename(columns=rename_map)
 
-    # Преобразование дат
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
-    # Исключаем строки с пустым Источник ОМПП
+    # Удаляем пустые источники
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
-    # ---- Автоматический фильтр: дата звонка в том же или предыдущем месяце ----
+    # ---- Автофильтр по дате звонка (текущий/предыдущий месяц) ----
     df['год_напр'] = df['Дата направления'].dt.year
     df['мес_напр'] = df['Дата направления'].dt.month
     df['год_зв'] = df['Дата последнего звонка'].dt.year
@@ -110,36 +100,75 @@ if uploaded_file is not None:
             (df_filtered['Дата направления'].dt.date <= end_date)
         ]
 
-    # ---- Основная таблица ----
+    # ---- Таблица: количество направленных по рекрутерам (с ограничением ширины) ----
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
     recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
 
     st.subheader("📋 Количество направленных кандидатов по рекрутерам")
-    st.dataframe(recruiter_counts, use_container_width=True)
 
-    # ---- Линейный график: вышедшие по источникам ----
-    # Определяем "вышедших" как went_work (статус координатора)
-    if 'Статус координатора' in df_filtered.columns:
-        df_worked = df_filtered[df_filtered['Статус координатора'] == 'went_work']
-    else:
-        # если столбец статуса координатора отсутствует, используем статус лида
-        df_worked = df_filtered[df_filtered['Статус лида'] == 'worked']
+    # Ограничиваем ширину колонок: задаём максимальную ширину в пикселях
+    st.dataframe(
+        recruiter_counts,
+        use_container_width=True,
+        column_config={
+            "Рекрутер": st.column_config.TextColumn(
+                "Рекрутер",
+                width="medium",  # можно small, medium, large
+                help="ФИО рекрутера"
+            ),
+            "Кол-во кандидатов": st.column_config.NumberColumn(
+                "Кол-во кандидатов",
+                width="small",
+                help="Количество уникальных телефонов"
+            )
+        }
+    )
 
-    if not df_worked.empty:
-        worked_by_recruiter_source = df_worked.groupby(['Рекрутер', 'Источник ОМПП']).size().reset_index(name='Кол-во вышедших')
-        fig = px.line(
-            worked_by_recruiter_source,
-            x='Источник ОМПП',
-            y='Кол-во вышедших',
-            color='Рекрутер',
-            markers=True,
-            title="Количество вышедших кандидатов по источникам (линии — рекрутеры)"
-        )
-        fig.update_layout(xaxis_title="Источник", yaxis_title="Кол-во вышедших")
-        st.plotly_chart(fig, use_container_width=True)
+    # ---- График: горизонтальная столбчатая диаграмма по выбранному источнику ----
+    st.subheader("📊 Количество направленных кандидатов по источникам")
+
+    # Выбор источника (если доступны источники)
+    available_sources = sorted(df_filtered['Источник ОМПП'].unique())
+    if len(available_sources) == 0:
+        st.warning("Нет данных для отображения графика.")
     else:
-        st.info("Нет данных о вышедших кандидатах для выбранных фильтров.")
+        # Пользователь выбирает один источник для отображения
+        selected_source = st.selectbox("Выберите источник для отображения на графике", options=available_sources)
+
+        # Фильтруем данные по выбранному источнику
+        df_source = df_filtered[df_filtered['Источник ОМПП'] == selected_source]
+
+        # Группируем по рекрутерам и считаем количество телефонов
+        source_counts = df_source.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+        source_counts.columns = ['Рекрутер', 'Кол-во направленных']
+
+        # Если нет данных – покажем предупреждение
+        if source_counts.empty:
+            st.info(f"Нет направленных кандидатов по источнику '{selected_source}'")
+        else:
+            # Сортируем для наглядности
+            source_counts = source_counts.sort_values('Кол-во направленных', ascending=True)
+
+            # Горизонтальная столбчатая диаграмма
+            fig = px.bar(
+                source_counts,
+                x='Кол-во направленных',
+                y='Рекрутер',
+                orientation='h',
+                title=f"Количество направленных кандидатов по источнику: {selected_source}",
+                text='Кол-во направленных',  # отображаем значения на столбцах
+                color='Кол-во направленных',
+                color_continuous_scale='Blues'
+            )
+            fig.update_traces(textposition='outside')
+            fig.update_layout(
+                xaxis_title="Количество кандидатов",
+                yaxis_title="Рекрутер",
+                yaxis={'categoryorder': 'total ascending'},  # сортировка по убыванию сверху
+                height=600
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     # ---- Статистика в сайдбаре ----
     st.sidebar.markdown("---")
