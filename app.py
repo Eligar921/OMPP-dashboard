@@ -224,6 +224,7 @@ if uploaded_file_responses is not None:
 # ---- Боковая панель с фильтрами ----
 st.sidebar.header("Фильтры")
 
+# Фильтр по источнику
 all_sources = []
 if df_main is not None:
     all_sources.extend(df_main['Источник ОМПП'].unique())
@@ -237,6 +238,7 @@ else:
     selected_sources = []
     st.sidebar.warning("Загрузите хотя бы один файл для выбора источников.")
 
+# Фильтр по дате направления
 if df_main is not None:
     st.sidebar.subheader("Фильтр по дате направления")
     min_date_main = df_main['Дата направления'].min().date()
@@ -251,6 +253,7 @@ if df_main is not None:
 else:
     date_range_main = None
 
+# Фильтр по дате первой смены
 if df_kpi is not None:
     st.sidebar.subheader("Фильтр по дате первой смены")
     min_date_kpi = df_kpi['Дата первой смены'].min().date()
@@ -265,18 +268,32 @@ if df_kpi is not None:
 else:
     date_range_kpi = None
 
-# ---- Фильтр по дате откликов (для отчёта обработки) ----
+# ---- Фильтр по дате откликов (с автоподстановкой) ----
 if df_responses is not None:
-    # Найдём столбец с датой отклика
     col_date_resp = find_column(df_responses, ['дата отклика', 'отклика'])
     if col_date_resp is not None:
         df_responses['Дата отклика'] = pd.to_datetime(df_responses[col_date_resp], errors='coerce')
         min_date_resp = df_responses['Дата отклика'].min().date()
         max_date_resp = df_responses['Дата отклика'].max().date()
+        
+        # Определяем значение по умолчанию: если задан date_range_main, то берём его, иначе date_range_kpi
+        default_start = min_date_resp
+        default_end = max_date_resp
+        if date_range_main and len(date_range_main) == 2:
+            default_start, default_end = date_range_main
+        elif date_range_kpi and len(date_range_kpi) == 2:
+            default_start, default_end = date_range_kpi
+        
+        # Приводим к date
+        if isinstance(default_start, datetime):
+            default_start = default_start.date()
+        if isinstance(default_end, datetime):
+            default_end = default_end.date()
+        
         st.sidebar.subheader("Фильтр по дате отклика")
         date_range_resp = st.sidebar.date_input(
             "Диапазон дат отклика",
-            value=(min_date_resp, max_date_resp),
+            value=(default_start, default_end),
             min_value=min_date_resp,
             max_value=max_date_resp,
             key="date_range_resp"
@@ -286,6 +303,44 @@ if df_responses is not None:
         st.sidebar.warning("В листе 'Отклики общая' не найден столбец с датой отклика.")
 else:
     date_range_resp = None
+
+# ---- Фильтр по рекрутерам (общий) ----
+default_recruiters = [
+    'Балдин Александр',
+    'Балдина Ксения',
+    'Демьянова Алла',
+    'Дорохина Галина',
+    'Левшина Оксана',
+    'Леонтьева Галина',
+    'Москвитина Анна',
+    'Роминян Максим',
+    'Царева Анастасия',
+    'Шайхутдинова Ильмира'
+]
+
+# Собираем всех рекрутеров из всех источников
+all_recruiters = set()
+if df_main is not None:
+    all_recruiters.update(df_main['Рекрутер'].dropna().unique())
+if df_kpi is not None:
+    all_recruiters.update(df_kpi['Рекрутер'].dropna().unique())
+if df_responses is not None:
+    col_recr_resp = find_column(df_responses, ['рекрутер в crm', 'рекрутер в срм'])
+    if col_recr_resp is not None:
+        all_recruiters.update(df_responses[col_recr_resp].dropna().unique())
+all_recruiters = sorted(all_recruiters)
+
+# По умолчанию выбираем только тех, кто есть в списке default_recruiters и присутствует в данных
+default_selected = [r for r in default_recruiters if r in all_recruiters]
+if not default_selected:
+    default_selected = all_recruiters  # если никого нет, показываем всех
+
+selected_recruiters = st.sidebar.multiselect(
+    "Рекрутеры",
+    options=all_recruiters,
+    default=default_selected,
+    key="recruiter_filter_global"
+)
 
 # ---- Применение фильтров к основному отчету ----
 if df_main is not None and selected_sources:
@@ -310,6 +365,10 @@ if df_main is not None and selected_sources:
     df_main_filtered['filter_last_call'] = same_month | prev_month | prev_month_jan
     df_main_filtered = df_main_filtered[df_main_filtered['filter_last_call'] & df_main_filtered['Дата последнего звонка'].notna()]
     df_main_filtered = df_main_filtered.reset_index(drop=True)
+    
+    # Применяем фильтр по рекрутерам
+    if selected_recruiters:
+        df_main_filtered = df_main_filtered[df_main_filtered['Рекрутер'].isin(selected_recruiters)]
 else:
     df_main_filtered = None
 
@@ -336,28 +395,39 @@ if df_kpi is not None and selected_sources:
     df_kpi_filtered['filter_last_call'] = same_month_kpi | prev_month_kpi | prev_month_jan_kpi
     df_kpi_filtered = df_kpi_filtered[df_kpi_filtered['filter_last_call'] & df_kpi_filtered['Дата последнего звонка'].notna()]
     df_kpi_filtered = df_kpi_filtered.reset_index(drop=True)
+    
+    # Применяем фильтр по рекрутерам
+    if selected_recruiters:
+        df_kpi_filtered = df_kpi_filtered[df_kpi_filtered['Рекрутер'].isin(selected_recruiters)]
 else:
     df_kpi_filtered = None
 
-# ---- Применение фильтра по дате к откликам ----
+# ---- Применение фильтров к откликам ----
 df_responses_filtered = None
 if df_responses is not None:
     df_responses_filtered = df_responses.copy()
+    # Фильтр по дате отклика
     if date_range_resp and len(date_range_resp) == 2 and 'Дата отклика' in df_responses_filtered.columns:
         start_date_resp, end_date_resp = date_range_resp
         df_responses_filtered = df_responses_filtered[
             (df_responses_filtered['Дата отклика'].dt.date >= start_date_resp) &
             (df_responses_filtered['Дата отклика'].dt.date <= end_date_resp)
         ]
-    # Если нет столбца с датой, оставляем как есть
+    # Фильтр по рекрутерам
+    if selected_recruiters:
+        col_recr_resp = find_column(df_responses_filtered, ['рекрутер в crm', 'рекрутер в срм'])
+        if col_recr_resp is not None:
+            df_responses_filtered = df_responses_filtered[df_responses_filtered[col_recr_resp].isin(selected_recruiters)]
 
 # ---- Обработка откликов: таблица (будет выведена в конце) ----
 merged_resp = None
+df_resp_for_city = None  # для статистики по городам
 if df_responses_filtered is not None:
     col_phone_resp = find_column(df_responses_filtered, ['телефон соискателя'])
     col_recruiter_resp = find_column(df_responses_filtered, ['рекрутер в crm', 'рекрутер в срм'])
     col_status_resp = find_column(df_responses_filtered, ['статус рекрутера'])
     col_first_shift_resp = find_column(df_responses_filtered, ['первая смена после отклика'])
+    col_city_vacancy = find_column(df_responses_filtered, ['город вакансии'])
 
     if col_phone_resp is None or col_recruiter_resp is None:
         st.error("❌ В листе 'Отклики общая' не найдены столбцы 'Телефон соискателя' и/или 'Рекрутер в CRM'")
@@ -370,58 +440,34 @@ if df_responses_filtered is not None:
             rename_resp[col_status_resp] = 'Статус'
         if col_first_shift_resp is not None:
             rename_resp[col_first_shift_resp] = 'Первая смена'
+        if col_city_vacancy is not None:
+            rename_resp[col_city_vacancy] = 'Город вакансии'
 
         df_resp = df_responses_filtered.rename(columns=rename_resp)
         df_resp = df_resp.loc[:, ~df_resp.columns.duplicated()]
 
-        # Список рекрутеров для фильтра по умолчанию
-        default_recruiters_resp = [
-            'Балдин Александр',
-            'Балдина Ксения',
-            'Демьянова Алла',
-            'Дорохина Галина',
-            'Левшина Оксана',
-            'Леонтьева Галина',
-            'Москвитина Анна',
-            'Роминян Максим',
-            'Царева Анастасия',
-            'Шайхутдинова Ильмира'
-        ]
-        all_recruiters_resp = sorted(df_resp['Рекрутер'].dropna().unique())
-        # Устанавливаем по умолчанию только тех, кто есть в списке
-        default_selected = [r for r in default_recruiters_resp if r in all_recruiters_resp]
+        # Сохраняем для города
+        df_resp_for_city = df_resp.copy()
 
-        selected_recruiters_resp = st.multiselect(
-            "Выберите рекрутеров для отображения (оставьте пустым для всех):",
-            options=all_recruiters_resp,
-            default=default_selected,
-            key="recruiter_resp_filter"
-        )
+        # Группировка для таблицы обработки откликов
+        responses_count = df_resp.groupby('Рекрутер').size().reset_index(name='Кол-во откликов')
 
-        if selected_recruiters_resp:
-            df_resp_filtered = df_resp[df_resp['Рекрутер'].isin(selected_recruiters_resp)]
-        else:
-            df_resp_filtered = df_resp
-
-        # Группировка
-        responses_count = df_resp_filtered.groupby('Рекрутер').size().reset_index(name='Кол-во откликов')
-
-        if 'Статус' in df_resp_filtered.columns:
+        if 'Статус' in df_resp.columns:
             reg_statuses = ['Регистрация', 'Приглашен на смену', 'Смена забронирована']
-            df_reg = df_resp_filtered[df_resp_filtered['Статус'].isin(reg_statuses)]
+            df_reg = df_resp[df_resp['Статус'].isin(reg_statuses)]
             reg_count = df_reg.groupby('Рекрутер').size().reset_index(name='Кол-во регистраций')
         else:
             reg_count = pd.DataFrame(columns=['Рекрутер', 'Кол-во регистраций'])
 
-        if 'Статус' in df_resp_filtered.columns:
+        if 'Статус' in df_resp.columns:
             invited_statuses = ['Приглашен на смену', 'Смена забронирована']
-            df_inv = df_resp_filtered[df_resp_filtered['Статус'].isin(invited_statuses)]
+            df_inv = df_resp[df_resp['Статус'].isin(invited_statuses)]
             invited_count = df_inv.groupby('Рекрутер').size().reset_index(name='Кол-во направленных из откликов')
         else:
             invited_count = pd.DataFrame(columns=['Рекрутер', 'Кол-во направленных из откликов'])
 
-        if 'Первая смена' in df_resp_filtered.columns:
-            df_worked_resp = df_resp_filtered[df_resp_filtered['Первая смена'].notna()]
+        if 'Первая смена' in df_resp.columns:
+            df_worked_resp = df_resp[df_resp['Первая смена'].notna()]
             worked_count = df_worked_resp.groupby('Рекрутер').size().reset_index(name='Вышедшие из откликов')
         else:
             worked_count = pd.DataFrame(columns=['Рекрутер', 'Вышедшие из откликов'])
@@ -711,10 +757,25 @@ if df_main_filtered is not None:
     else:
         st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
 
-# ---- 5. Объединённый блок: Приглашенные/вышедшие по городам ----
-if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
-    st.subheader("🏙️ Приглашенные/вышедшие по городам")
+# ---- 5. Объединённый блок: Статистика по городам (переименован) ----
+st.subheader("🏙️ Статистика по городам")
 
+# Подготовка данных по городам
+city_data = {}
+
+# 1. Кол-во откликов из отчета по обработке откликов
+if df_resp_for_city is not None and 'Город вакансии' in df_resp_for_city.columns:
+    city_resp = df_resp_for_city[df_resp_for_city['Город вакансии'].notna() & (df_resp_for_city['Город вакансии'].astype(str).str.strip() != '')].copy()
+    city_resp['Город'] = city_resp['Город вакансии'].astype(str).str.strip()
+    city_resp_counts = city_resp.groupby('Город').size().reset_index(name='Кол-во откликов')
+    for _, row in city_resp_counts.iterrows():
+        city = row['Город']
+        if city not in city_data:
+            city_data[city] = {}
+        city_data[city]['Кол-во откликов'] = row['Кол-во откликов']
+
+# 2. Приглашенные (из основного отчёта)
+if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
     city_invited = df_main_filtered[
         df_main_filtered['Город'].notna() & 
         (df_main_filtered['Город'].astype(str).str.strip() != '')
@@ -722,38 +783,56 @@ if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
     city_invited['Город'] = city_invited['Город'].astype(str).str.strip()
     invited_city = city_invited.groupby('Город')['Телефон'].nunique().reset_index()
     invited_city.columns = ['Город', 'Кол-во приглашенных']
+    for _, row in invited_city.iterrows():
+        city = row['Город']
+        if city not in city_data:
+            city_data[city] = {}
+        city_data[city]['Кол-во приглашенных'] = row['Кол-во приглашенных']
 
-    if df_kpi_filtered is not None and 'Город первой смены' in df_kpi_filtered.columns:
-        df_kpi_city = df_kpi_filtered[
-            df_kpi_filtered['Рекрутер'].notna() & 
-            (df_kpi_filtered['Рекрутер'].astype(str).str.strip() != '') &
-            df_kpi_filtered['Город первой смены'].notna() & 
-            (df_kpi_filtered['Город первой смены'].astype(str).str.strip() != '')
-        ].copy()
-        df_kpi_city['Город'] = df_kpi_city['Город первой смены'].astype(str).str.strip()
-        worked_city = df_kpi_city.groupby('Город')['Телефон гигера'].nunique().reset_index()
-        worked_city.columns = ['Город', 'Кол-во вышедших']
-    else:
-        worked_city = pd.DataFrame(columns=['Город', 'Кол-во вышедших'])
+# 3. Вышедшие (из KPI)
+if df_kpi_filtered is not None and 'Город первой смены' in df_kpi_filtered.columns:
+    df_kpi_city = df_kpi_filtered[
+        df_kpi_filtered['Рекрутер'].notna() & 
+        (df_kpi_filtered['Рекрутер'].astype(str).str.strip() != '') &
+        df_kpi_filtered['Город первой смены'].notna() & 
+        (df_kpi_filtered['Город первой смены'].astype(str).str.strip() != '')
+    ].copy()
+    df_kpi_city['Город'] = df_kpi_city['Город первой смены'].astype(str).str.strip()
+    worked_city = df_kpi_city.groupby('Город')['Телефон гигера'].nunique().reset_index()
+    worked_city.columns = ['Город', 'Кол-во вышедших']
+    for _, row in worked_city.iterrows():
+        city = row['Город']
+        if city not in city_data:
+            city_data[city] = {}
+        city_data[city]['Кол-во вышедших'] = row['Кол-во вышедших']
 
-    merged_city = pd.merge(invited_city, worked_city, on='Город', how='outer').fillna(0)
-    merged_city['Кол-во приглашенных'] = merged_city['Кол-во приглашенных'].astype(int)
-    merged_city['Кол-во вышедших'] = merged_city['Кол-во вышедших'].astype(int)
-
-    total_invited = merged_city['Кол-во приглашенных'].sum()
-    merged_city['Доля приглашенных'] = (merged_city['Кол-во приглашенных'] / total_invited * 100).round(1).astype(str) + '%'
-
-    merged_city['Конверсия из направленных в вышедших, %'] = (
-        merged_city['Кол-во вышедших'] / merged_city['Кол-во приглашенных'] * 100
+if city_data:
+    df_city = pd.DataFrame.from_dict(city_data, orient='index').reset_index()
+    df_city.rename(columns={'index': 'Город'}, inplace=True)
+    
+    # Заполняем пропуски
+    for col in ['Кол-во откликов', 'Кол-во приглашенных', 'Кол-во вышедших']:
+        if col not in df_city.columns:
+            df_city[col] = 0
+        df_city[col] = df_city[col].fillna(0).astype(int)
+    
+    # Доля приглашенных
+    total_invited = df_city['Кол-во приглашенных'].sum()
+    df_city['Доля приглашенных'] = (df_city['Кол-во приглашенных'] / total_invited * 100).round(1).astype(str) + '%' if total_invited > 0 else '0%'
+    
+    # Конверсия из направленных в вышедших
+    df_city['Конверсия из направленных в вышедших, %'] = (
+        df_city['Кол-во вышедших'] / df_city['Кол-во приглашенных'] * 100
     ).round(1).fillna(0).astype(str) + '%'
-
-    merged_city = merged_city.sort_values('Кол-во приглашенных', ascending=False)
-
+    
+    df_city = df_city.sort_values('Кол-во приглашенных', ascending=False)
+    
     st.dataframe(
-        merged_city,
+        df_city,
         use_container_width=True,
         column_config={
             "Город": st.column_config.TextColumn("Город", width="auto"),
+            "Кол-во откликов": st.column_config.NumberColumn("Кол-во откликов", format="%d", width="auto"),
             "Кол-во приглашенных": st.column_config.NumberColumn("Кол-во приглашенных", format="%d", width="auto"),
             "Доля приглашенных": st.column_config.TextColumn("Доля приглашенных", width="auto"),
             "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d", width="auto"),
@@ -761,7 +840,7 @@ if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
         }
     )
 else:
-    st.info("Столбец 'Город' не найден в основном отчёте, таблица городов пропущена.")
+    st.info("Нет данных по городам.")
 
 # ---- 6. Вышедшие по проектам (с дошедшими) из KPI ----
 if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
@@ -888,14 +967,22 @@ if df_diagram is not None:
         row_less_hour = None
         date_row = None
 
+        # Ищем строки с данными
         for idx, row in df_diagram_reset.iterrows():
             first_cell = str(row.iloc[0]).strip().lower()
             if 'в течение 15 минут' in first_cell:
                 row_15min = idx
             elif 'менее часа' in first_cell:
                 row_less_hour = idx
-            if isinstance(first_cell, str) and (re.match(r'^\d{2}\.\w{3}$', first_cell) or re.match(r'^\d{4}-\d{2}-\d{2}', first_cell)):
-                date_row = idx
+            # Ищем строку с датами: проверяем все ячейки, начиная со второй
+            if date_row is None:
+                for col in range(1, len(row)):
+                    cell_val = row.iloc[col]
+                    if pd.notna(cell_val):
+                        cell_str = str(cell_val).strip()
+                        if re.match(r'^\d{2}\.\w{3}$', cell_str) or re.match(r'^\d{4}-\d{2}-\d{2}', cell_str):
+                            date_row = idx
+                            break
 
         if date_row is None:
             date_row = 0
@@ -959,16 +1046,3 @@ if df_diagram is not None:
             st.warning("Не удалось извлечь данные из листа 'Диаграмма'.")
     except Exception as e:
         st.error(f"Ошибка при обработке листа 'Диаграмма': {e}")
-
-# ---- Статистика в сайдбаре ----
-if df_main_filtered is not None:
-    st.sidebar.markdown("---")
-    st.sidebar.write(f"🧾 Основной отчет: строк после фильтров: **{len(df_main_filtered)}**")
-    st.sidebar.write(f"👥 Уникальных рекрутеров: **{df_main_filtered['Рекрутер'].nunique()}**")
-    st.sidebar.write(f"📞 Уникальных телефонов: **{df_main_filtered['Телефон'].nunique()}**")
-
-if df_kpi_filtered is not None:
-    st.sidebar.markdown("---")
-    st.sidebar.write(f"🧾 KPI отчет: строк после фильтров: **{len(df_kpi_filtered)}**")
-    st.sidebar.write(f"👥 Уникальных рекрутеров: **{df_kpi_filtered['Рекрутер'].nunique()}**")
-    st.sidebar.write(f"📞 Уникальных телефонов гигеров: **{df_kpi_filtered['Телефон гигера'].nunique()}**")
