@@ -11,7 +11,6 @@ if uploaded_file is not None:
     df = pd.read_excel(uploaded_file, sheet_name=0)
     df.columns = df.columns.str.strip()
 
-    # Функция поиска столбца по ключевым словам
     def find_column(keywords):
         for col in df.columns:
             col_lower = col.lower()
@@ -20,7 +19,6 @@ if uploaded_file is not None:
                     return col
         return None
 
-    # Поиск всех необходимых столбцов
     col_date_direction = find_column(['дата направления', 'направления на координатора'])
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
@@ -32,7 +30,6 @@ if uploaded_file is not None:
     col_project_group = find_column(['желаемые проекты (группа)', 'группа'])
     col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
 
-    # Проверка наличия обязательных столбцов
     if col_date_direction is None:
         st.error("❌ Не найден столбец с датой направления. Доступные столбцы: " + ", ".join(df.columns))
         st.stop()
@@ -52,7 +49,6 @@ if uploaded_file is not None:
         st.error("❌ Не найден ни столбец 'Статус координатора', ни 'Статус лида'")
         st.stop()
 
-    # Переименование
     rename_map = {
         col_date_direction: 'Дата направления',
         col_phone: 'Телефон',
@@ -73,14 +69,11 @@ if uploaded_file is not None:
 
     df = df.rename(columns=rename_map)
 
-    # Преобразование дат
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
-    # Исключаем пустые источники
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
-    # ---- Автофильтр: дата звонка в том же или предыдущем месяце ----
     df['год_напр'] = df['Дата направления'].dt.year
     df['мес_напр'] = df['Дата направления'].dt.month
     df['год_зв'] = df['Дата последнего звонка'].dt.year
@@ -93,7 +86,6 @@ if uploaded_file is not None:
     df['filter_last_call'] = cond_same | cond_prev | cond_prev_year
     df = df[df['filter_last_call'] & df['Дата последнего звонка'].notna()]
 
-    # ---- Боковая панель ----
     st.sidebar.header("Фильтры")
     sources = sorted(df['Источник ОМПП'].unique())
     selected_sources = st.sidebar.multiselect("Источник ОМПП", options=sources, default=sources)
@@ -114,10 +106,9 @@ if uploaded_file is not None:
             (df_filtered['Дата направления'].dt.date <= end_date)
         ]
 
-    # Сбрасываем индекс, чтобы избежать проблем с дублирующимися индексами
     df_filtered = df_filtered.reset_index(drop=True)
 
-    # ---- Таблица: количество кандидатов по рекрутерам (с ограничением ширины) ----
+    # ---- Таблица рекрутеров ----
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
     recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
@@ -132,7 +123,7 @@ if uploaded_file is not None:
         }
     )
 
-    # ---- График: количество направленных по выбранному источнику (горизонтальная столбчатая) ----
+    # ---- График по источникам ----
     st.subheader("📊 Кол-во направленных кандидатов по источникам")
     available_sources = sorted(df_filtered['Источник ОМПП'].unique())
     if not available_sources:
@@ -164,7 +155,7 @@ if uploaded_file is not None:
             fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
 
-        # ---- Детальная таблица: рекрутер → источник (кол-во, % от рекрутера, % от всех) ----
+        # Детальная таблица по источникам
         st.subheader("📋 Детальная разбивка по источникам для каждого рекрутера")
         detail = df_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон'].nunique().reset_index()
         detail.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
@@ -195,7 +186,7 @@ if uploaded_file is not None:
             }
         )
 
-    # ---- НОВЫЙ БЛОК: Приглашенные по проектам ----
+    # ---- Приглашенные по проектам ----
     if 'Желаемые проекты (Группа)' in df_filtered.columns:
         st.subheader("📊 Приглашенные по проектам")
         df_projects = df_filtered.copy()
@@ -234,12 +225,11 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- НОВЫЙ БЛОК: Приглашенные по городам (исправленная фильтрация) ----
+    # ---- Приглашенные по городам (исправленный блок) ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
-        # Используем .loc с булевой маской, чтобы избежать ошибок с индексами
-        city_mask = df_filtered['Город'].notna() & (df_filtered['Город'] != '')
-        city_data = df_filtered.loc[city_mask].copy()
+        # Прямая фильтрация без .loc
+        city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'] != '')].copy()
         if not city_data.empty:
             city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
             city_counts.columns = ['Город', 'Кол-во']
@@ -248,7 +238,6 @@ if uploaded_file is not None:
             city_counts['% от всех'] = city_counts['% от всех'].astype(str) + '%'
             city_counts = city_counts.sort_values('Кол-во', ascending=False)
 
-            # Отображаем таблицу
             st.dataframe(
                 city_counts,
                 use_container_width=True,
@@ -259,7 +248,6 @@ if uploaded_file is not None:
                 }
             )
 
-            # Добавляем столбчатую диаграмму по городам с увеличенной высотой
             fig_city = px.bar(
                 city_counts,
                 x='Кол-во',
@@ -270,7 +258,7 @@ if uploaded_file is not None:
                 text='Кол-во',
                 color='Кол-во',
                 color_continuous_scale='Viridis',
-                height=700  # увеличенная высота для читаемости
+                height=700
             )
             fig_city.update_traces(textposition='outside')
             fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
