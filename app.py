@@ -35,7 +35,7 @@ def normalize_project(project_name):
         return PROJECT_ALIASES[cleaned]
     return project_name.strip()
 
-# ---- Функция поиска столбца ----
+# ---- Функция поиска столбца с расширенным списком синонимов ----
 def find_column(df, keywords, exact_match=None):
     if exact_match is not None:
         for col in df.columns:
@@ -237,24 +237,71 @@ if uploaded_file_responses is not None:
 
 # ---- Обработка файла звонков Mango-Office (CSV) ----
 if uploaded_file_calls is not None:
-    # Пробуем разные кодировки, заголовок на второй строке (индекс 1)
+    # Пробуем разные разделители, кодировки и варианты с заголовком
+    separators = [';', ',', '\t']
     encodings = ['utf-8-sig', 'cp1251', 'latin1', 'utf-8']
     df_calls = None
-    for enc in encodings:
-        try:
-            df_calls = pd.read_csv(uploaded_file_calls, sep=';', decimal=',', quotechar='"', encoding=enc, header=1)
-            # Если чтение прошло успешно, выходим из цикла
+    for sep in separators:
+        for enc in encodings:
+            try:
+                # Сначала пробуем читать с указанием header=1 (вторая строка)
+                df_calls = pd.read_csv(uploaded_file_calls, sep=sep, decimal=',', quotechar='"', encoding=enc, header=1)
+                # Если получилось и колонки не пустые, проверяем, есть ли там наши ключевые слова
+                if df_calls is not None and not df_calls.empty:
+                    # Проверим, есть ли хоть какие-то колонки, подходящие под наши ключевые слова
+                    col_who = find_column(df_calls, ['кто звонил', 'звонивший', 'сотрудник', 'абонент', 'рекрутер'])
+                    col_call_type = find_column(df_calls, ['тип вызова', 'тип звонка', 'направление', 'вид'])
+                    col_duration = find_column(df_calls, ['длительность, сек', 'длительность', 'длительность (сек)', 'время разговора', 'длит'])
+                    if col_who is not None and col_call_type is not None and col_duration is not None:
+                        # Все найдено - выходим из циклов
+                        break
+                    else:
+                        # Не все найдено, пробуем другие варианты
+                        df_calls = None
+                        continue
+                else:
+                    df_calls = None
+            except:
+                df_calls = None
+                continue
+        if df_calls is not None:
             break
-        except UnicodeDecodeError:
-            continue
-        except Exception as e:
-            st.error(f"Ошибка при чтении CSV с кодировкой {enc}: {e}")
-            df_calls = None
-            break
+
+    # Если не удалось прочитать с header=1, попробуем определить заголовок автоматически (без header)
+    if df_calls is None:
+        for sep in separators:
+            for enc in encodings:
+                try:
+                    df_calls = pd.read_csv(uploaded_file_calls, sep=sep, decimal=',', quotechar='"', encoding=enc, header=None)
+                    # Ищем строку, которая содержит наши ключевые слова и используем её как заголовок
+                    for i, row in df_calls.iterrows():
+                        row_str = ' '.join(row.astype(str))
+                        if re.search(r'кто звонил|звонивший|тип вызова|длительность', row_str, re.I):
+                            # Эта строка - заголовок
+                            header_row = row
+                            # Читаем файл заново, пропуская строки до этой
+                            df_calls = pd.read_csv(uploaded_file_calls, sep=sep, decimal=',', quotechar='"', encoding=enc, skiprows=i, header=0)
+                            break
+                    if df_calls is not None and not df_calls.empty:
+                        # Проверим, что колонки найдены
+                        col_who = find_column(df_calls, ['кто звонил', 'звонивший', 'сотрудник', 'абонент', 'рекрутер'])
+                        col_call_type = find_column(df_calls, ['тип вызова', 'тип звонка', 'направление', 'вид'])
+                        col_duration = find_column(df_calls, ['длительность, сек', 'длительность', 'длительность (сек)', 'время разговора', 'длит'])
+                        if col_who is not None and col_call_type is not None and col_duration is not None:
+                            break
+                        else:
+                            df_calls = None
+                            continue
+                except:
+                    df_calls = None
+                    continue
+            if df_calls is not None:
+                break
+
     if df_calls is not None:
         df_calls.columns = df_calls.columns.str.strip()
     else:
-        st.error("Не удалось прочитать CSV файл звонков ни в одной из поддерживаемых кодировок.")
+        st.error("Не удалось прочитать CSV файл звонков ни в одном из форматов. Проверьте структуру файла.")
 
 # ---- Боковая панель с фильтрами ----
 st.sidebar.header("Фильтры")
@@ -406,7 +453,7 @@ if df_responses is not None:
         all_recruiters.update(df_responses[col_recr_resp].dropna().unique())
 # Добавляем рекрутеров из файла звонков (если он загружен и колонки найдены)
 if df_calls is not None:
-    col_who = find_column(df_calls, ['кто звонил', 'кто звонил', 'звонивший'])
+    col_who = find_column(df_calls, ['кто звонил', 'звонивший', 'сотрудник', 'абонент', 'рекрутер'])
     if col_who is not None:
         all_recruiters.update(df_calls[col_who].astype(str).str.replace('"', '').str.strip().dropna().unique())
 
@@ -535,13 +582,15 @@ if df_responses is not None:
 # ---- Обработка звонков: поиск колонок и фильтрация по рекрутерам ----
 df_calls_filtered = None
 if df_calls is not None:
-    # Ищем нужные колонки
-    col_who = find_column(df_calls, ['кто звонил', 'кто звонил', 'звонивший'])
-    col_call_type = find_column(df_calls, ['тип вызова', 'тип звонка'])
-    col_duration = find_column(df_calls, ['длительность, сек', 'длительность', 'длительность сек'])
+    # Ищем нужные колонки с расширенными ключевыми словами
+    col_who = find_column(df_calls, ['кто звонил', 'звонивший', 'сотрудник', 'абонент', 'рекрутер'])
+    col_call_type = find_column(df_calls, ['тип вызова', 'тип звонка', 'направление', 'вид'])
+    col_duration = find_column(df_calls, ['длительность, сек', 'длительность', 'длительность (сек)', 'время разговора', 'длит'])
 
     if col_who is None or col_call_type is None or col_duration is None:
-        st.warning("В файле звонков не найдены необходимые столбцы (Кто звонил, Тип вызова, Длительность, сек). Статистика звонков недоступна.")
+        # Выводим список доступных колонок для диагностики
+        st.warning(f"В файле звонков не найдены необходимые столбцы. Доступные колонки: {list(df_calls.columns)}")
+        st.warning("Попробуйте переименовать столбцы в файле или изменить ключевые слова в коде.")
     else:
         # Переименовываем для удобства
         rename_calls = {
