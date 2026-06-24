@@ -29,7 +29,6 @@ if uploaded_file is not None:
         'последнего звонка',
         'последний звонок'
     ])
-    
     col_coord_status = find_column(['статус координатора', 'статус координатор'])
     col_lead_status = find_column(['статус лида'])
     col_city = find_column(['город'])
@@ -83,30 +82,24 @@ if uploaded_file is not None:
 
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
+    # ---- Автофильтр: дата звонка в том же или предыдущем месяце ----
     df['год_напр'] = df['Дата направления'].dt.year
     df['мес_напр'] = df['Дата направления'].dt.month
     df['год_зв'] = df['Дата последнего звонка'].dt.year
     df['мес_зв'] = df['Дата последнего звонка'].dt.month
 
+    # Используем предыдущий месяц от даты направления
     prev_month = df['Дата направления'] - pd.DateOffset(months=1)
+    df['год_пред_мес'] = prev_month.dt.year
+    df['мес_пред_мес'] = prev_month.dt.month
 
-cond_same = (
-    (df['год_зв'] == df['год_напр']) &
-    (df['мес_зв'] == df['мес_напр'])
-)
+    cond_same = (df['год_зв'] == df['год_напр']) & (df['мес_зв'] == df['мес_напр'])
+    cond_prev = (df['год_зв'] == df['год_пред_мес']) & (df['мес_зв'] == df['мес_пред_мес'])
 
-cond_prev = (
-    (df['год_зв'] == prev_month.dt.year) &
-    (df['мес_зв'] == prev_month.dt.month)
-)
+    df['filter_last_call'] = cond_same | cond_prev
+    df = df[df['filter_last_call'] & df['Дата последнего звонка'].notna()]
 
-df['filter_last_call'] = cond_same | cond_prev
-
-df = df[
-    df['filter_last_call'] &
-    df['Дата последнего звонка'].notna()
-]
-
+    # ---- Боковая панель ----
     st.sidebar.header("Фильтры")
     sources = sorted(df['Источник ОМПП'].unique())
     selected_sources = st.sidebar.multiselect("Источник ОМПП", options=sources, default=sources)
@@ -246,45 +239,60 @@ df = df[
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- Приглашенные по городам (исправленный блок с .iloc) ----
-   # ---- Приглашенные по городам ----
-if 'Город' in df_filtered.columns:
+    # ---- Приглашенные по городам ----
+    if 'Город' in df_filtered.columns:
+        st.subheader("🏙️ Приглашенные по городам")
 
-    st.subheader("🏙️ Приглашенные по городам")
+        # Если столбец "Город" вдруг стал DataFrame (из-за дубликатов), берём первый
+        city_series = df_filtered['Город']
+        if isinstance(city_series, pd.DataFrame):
+            city_series = city_series.iloc[:, 0]
 
-    # если вдруг осталось несколько столбцов "Город"
-    city_series = df_filtered['Город']
+        city_data = df_filtered.copy()
+        city_data['Город'] = city_series
 
-    if isinstance(city_series, pd.DataFrame):
-        city_series = city_series.iloc[:, 0]
+        city_data = city_data[
+            city_data['Город'].notna() &
+            (city_data['Город'].astype(str).str.strip() != '')
+        ]
 
-    city_data = df_filtered.copy()
-    city_data['Город'] = city_series
+        if not city_data.empty:
+            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
+            city_counts.columns = ['Город', 'Кол-во']
+            total_candidates = df_filtered['Телефон'].nunique()
+            city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
+            city_counts = city_counts.sort_values('Кол-во', ascending=False)
 
-    city_data = city_data[
-        city_data['Город'].notna() &
-        (city_data['Город'].astype(str).str.strip() != '')
-    ]
+            st.dataframe(
+                city_counts,
+                use_container_width=True,
+                column_config={
+                    "Город": "Город",
+                    "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                    "% от всех": st.column_config.TextColumn("% от всех"),
+                }
+            )
 
-    if not city_data.empty:
-
-        city_counts = (
-            city_data.groupby('Город')['Телефон']
-            .nunique()
-            .reset_index(name='Кол-во')
-            .sort_values('Кол-во', ascending=False)
-        )
-
-        total_candidates = df_filtered['Телефон'].nunique()
-
-        city_counts['% от всех'] = (
-            city_counts['Кол-во'] / total_candidates * 100
-        ).round(1).astype(str) + '%'
-
-        st.dataframe(city_counts, use_container_width=True)
-
+            # Диаграмма по городам
+            fig_city = px.bar(
+                city_counts,
+                x='Кол-во',
+                y='Город',
+                orientation='h',
+                title="Количество направленных кандидатов по городам",
+                labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Viridis',
+                height=700
+            )
+            fig_city.update_traces(textposition='outside')
+            fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_city, use_container_width=True)
+        else:
+            st.info("Нет данных по городам.")
     else:
-        st.info("Нет данных по городам.")
+        st.info("Столбец 'Город' не найден, таблица городов пропущена.")
 
     # ---- Статистика в сайдбаре ----
     st.sidebar.markdown("---")
