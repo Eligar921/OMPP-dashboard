@@ -1019,93 +1019,97 @@ if merged_resp is not None:
         }
     )
 
-# ---- 8. Диаграмма "Время обработки откликов в рабочее время" (горизонтальная) ----
+# ---- 8. Диаграмма "Время обработки откликов в рабочее время" ----
 if df_diagram is not None:
     st.subheader("📊 Время обработки откликов в рабочее время")
+
     try:
-        df_diagram_reset = df_diagram.reset_index(drop=True)
-        row_15min = None
-        row_less_hour = None
-        date_row = None
+        # В файле:
+        # строка 0 = даты
+        # строка 1 = обработано за 15 минут
+        # строка 2 = обработано менее чем за час
 
-        # Ищем строки с данными по всей строке (не только в первом столбце)
-        for idx, row in df_diagram_reset.iterrows():
-            # Преобразуем все ячейки строки в строки и объединяем
-            row_str = ' '.join([str(cell).strip().lower() for cell in row if pd.notna(cell)])
-            if 'в течение 15 минут' in row_str:
-                row_15min = idx
-            if 'менее часа' in row_str:
-                row_less_hour = idx
-            # Ищем строку с датами: проверяем все ячейки
-            if date_row is None:
-                for col in range(len(row)):
-                    cell_val = row.iloc[col]
-                    if pd.notna(cell_val):
-                        cell_str = str(cell_val).strip()
-                        if re.match(r'^\d{1,2}\.\w{3}$', cell_str) or re.match(r'^\d{4}-\d{2}-\d{2}', cell_str):
-                            date_row = idx
-                            break
+        dates = df_diagram.iloc[0, 1:]
+        values_15 = df_diagram.iloc[1, 1:]
+        values_hour = df_diagram.iloc[2, 1:]
 
-        if date_row is None:
-            date_row = 0
-        if row_15min is None:
-            row_15min = 1
-        if row_less_hour is None:
-            row_less_hour = 2
+        rows = []
 
-        # Собираем даты и значения
-        dates = []
-        for col in range(1, len(df_diagram_reset.columns)):
-            val = df_diagram_reset.iloc[date_row, col]
-            if pd.notna(val):
-                date_val = parse_diagram_date(str(val))
-                if pd.notna(date_val):
-                    dates.append((col, date_val))
+        for dt_raw, val15, val60 in zip(dates, values_15, values_hour):
 
-        data_15min = []
-        data_less_hour = []
-        for col, dt in dates:
-            val_15 = df_diagram_reset.iloc[row_15min, col]
-            val_less = df_diagram_reset.iloc[row_less_hour, col]
+            dt = parse_diagram_date(str(dt_raw))
+
+            if pd.isna(dt):
+                try:
+                    dt = pd.to_datetime(dt_raw, errors='coerce')
+                except:
+                    continue
+
+            if pd.isna(dt):
+                continue
+
             try:
-                v15 = float(val_15) if pd.notna(val_15) else None
+                val15 = float(val15)
+                val60 = float(val60)
             except:
-                v15 = None
-            try:
-                vless = float(val_less) if pd.notna(val_less) else None
-            except:
-                vless = None
-            if v15 is not None and vless is not None:
-                data_15min.append((dt, v15))
-                data_less_hour.append((dt, vless))
+                continue
 
-        if data_15min and data_less_hour:
-            df_diag_parsed = pd.DataFrame({
-                'Дата': [d for d, _ in data_15min],
-                'В течение 15 минут': [v for _, v in data_15min],
-                'Менее часа': [v for _, v in data_less_hour]
+            # если значения записаны как 0.71 -> превращаем в 71
+            if val15 <= 1:
+                val15 *= 100
+
+            if val60 <= 1:
+                val60 *= 100
+
+            rows.append({
+                'Дата': dt,
+                'В течение 15 минут': val15,
+                'Менее часа': val60
             })
-            df_diag_parsed['Месяц'] = df_diag_parsed['Дата'].dt.to_period('M').astype(str)
-            monthly_avg = df_diag_parsed.groupby('Месяц')[['В течение 15 минут', 'Менее часа']].mean().reset_index()
-            monthly_avg['В течение 15 минут'] = monthly_avg['В течение 15 минут'].round(1)
-            monthly_avg['Менее часа'] = monthly_avg['Менее часа'].round(1)
 
-            # Горизонтальная столбчатая диаграмма
-            fig_diag = px.bar(
+        if rows:
+
+            df_chart = pd.DataFrame(rows)
+
+            df_chart['Месяц'] = (
+                df_chart['Дата']
+                .dt.to_period('M')
+                .astype(str)
+            )
+
+            monthly_avg = (
+                df_chart.groupby('Месяц')
+                [['В течение 15 минут', 'Менее часа']]
+                .mean()
+                .round(1)
+                .reset_index()
+            )
+
+            fig = px.bar(
                 monthly_avg,
-                x=['В течение 15 минут', 'Менее часа'],
                 y='Месяц',
+                x=['В течение 15 минут', 'Менее часа'],
                 orientation='h',
                 barmode='group',
-                title="Среднее время обработки откликов в рабочее время (по месяцам)",
-                labels={'value': 'Средний %', 'variable': 'Метрика'},
-                color_discrete_map={'В течение 15 минут': '#1f77b4', 'Менее часа': '#ff7f0e'}
+                text_auto='.1f',
+                title='Среднее время обработки откликов по месяцам'
             )
-            fig_diag.update_layout(xaxis_title="Средний процент", yaxis_title="Месяц", legend_title="Метрика")
-            st.plotly_chart(fig_diag, use_container_width=True)
 
-            st.dataframe(monthly_avg, use_container_width=True)
+            fig.update_layout(
+                xaxis_title='Средний процент (%)',
+                yaxis_title='Месяц',
+                legend_title='Показатель'
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.dataframe(
+                monthly_avg,
+                use_container_width=True
+            )
+
         else:
-            st.warning("Не удалось извлечь данные из листа 'Диаграмма'.")
+            st.warning("На листе 'Диаграмма' не найдено данных.")
+
     except Exception as e:
         st.error(f"Ошибка при обработке листа 'Диаграмма': {e}")
