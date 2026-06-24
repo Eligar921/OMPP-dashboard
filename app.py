@@ -282,33 +282,51 @@ if df_responses is not None:
             default_start = min_date_resp
             default_end = max_date_resp
             
-            if date_range_main and len(date_range_main) == 2:
-                if date_range_main[0] is not None and date_range_main[1] is not None:
-                    default_start = date_range_main[0]
-                    default_end = date_range_main[1]
-            elif date_range_kpi and len(date_range_kpi) == 2:
-                if date_range_kpi[0] is not None and date_range_kpi[1] is not None:
-                    default_start = date_range_kpi[0]
-                    default_end = date_range_kpi[1]
+            # Проверяем date_range_main
+            if date_range_main is not None and isinstance(date_range_main, (list, tuple)) and len(date_range_main) == 2:
+                d1, d2 = date_range_main
+                if d1 is not None and d2 is not None:
+                    # Приводим к date
+                    if not isinstance(d1, date):
+                        try:
+                            d1 = pd.to_datetime(d1).date()
+                        except:
+                            d1 = None
+                    if not isinstance(d2, date):
+                        try:
+                            d2 = pd.to_datetime(d2).date()
+                        except:
+                            d2 = None
+                    if d1 is not None and d2 is not None:
+                        default_start, default_end = d1, d2
             
-            # Приводим к date
-            if not isinstance(default_start, date):
-                try:
-                    default_start = pd.to_datetime(default_start).date()
-                except:
-                    default_start = min_date_resp
-            if not isinstance(default_end, date):
-                try:
-                    default_end = pd.to_datetime(default_end).date()
-                except:
-                    default_end = max_date_resp
+            # Если не заданы или некорректны, пробуем взять из KPI
+            if default_start == min_date_resp and default_end == max_date_resp:
+                if date_range_kpi is not None and isinstance(date_range_kpi, (list, tuple)) and len(date_range_kpi) == 2:
+                    d1, d2 = date_range_kpi
+                    if d1 is not None and d2 is not None:
+                        if not isinstance(d1, date):
+                            try:
+                                d1 = pd.to_datetime(d1).date()
+                            except:
+                                d1 = None
+                        if not isinstance(d2, date):
+                            try:
+                                d2 = pd.to_datetime(d2).date()
+                            except:
+                                d2 = None
+                        if d1 is not None and d2 is not None:
+                            default_start, default_end = d1, d2
             
-            # Убеждаемся, что значения не None и start <= end
-            if default_start is None or default_end is None:
-                default_start = min_date_resp
-                default_end = max_date_resp
+            # Убеждаемся, что start <= end
             if default_start > default_end:
                 default_start, default_end = default_end, default_start
+            
+            # Ограничиваем min/max
+            if default_start < min_date_resp:
+                default_start = min_date_resp
+            if default_end > max_date_resp:
+                default_end = max_date_resp
             
             st.sidebar.subheader("Фильтр по дате отклика")
             date_range_resp = st.sidebar.date_input(
@@ -355,8 +373,9 @@ all_recruiters = sorted(all_recruiters)
 
 # По умолчанию выбираем только тех, кто есть в списке default_recruiters и присутствует в данных
 default_selected = [r for r in default_recruiters if r in all_recruiters]
+# Если никого из списка нет, показываем всех (чтобы не было пустого экрана)
 if not default_selected:
-    default_selected = all_recruiters  # если никого нет, показываем всех
+    default_selected = all_recruiters
 
 selected_recruiters = st.sidebar.multiselect(
     "Рекрутеры",
