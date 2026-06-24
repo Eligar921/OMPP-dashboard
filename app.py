@@ -225,12 +225,12 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- Приглашенные по городам (исправленный блок) ----
+    # ---- Приглашенные по городам (исправленный блок с .iloc) ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
-        # Прямая фильтрация без .loc
-        city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'] != '')].copy()
-        if not city_data.empty:
+        city_mask = (df_filtered['Город'].notna() & (df_filtered['Город'] != '')).values
+        if city_mask.any():
+            city_data = df_filtered.iloc[city_mask].copy()
             city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
             city_counts.columns = ['Город', 'Кол-во']
             total_candidates = df_filtered['Телефон'].nunique()
