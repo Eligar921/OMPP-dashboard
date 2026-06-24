@@ -88,34 +88,33 @@ if uploaded_file is not None:
     # ---- Исключаем пустые источники ----
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
-# ---- АВТОФИЛЬТР: дата звонка в текущем или предыдущем месяце ----
+    # ---- АВТОФИЛЬТР: дата звонка в текущем или предыдущем месяце ----
+    year_dir = df['Дата направления'].dt.year
+    month_dir = df['Дата направления'].dt.month
 
-year_dir = df['Дата направления'].dt.year
-month_dir = df['Дата направления'].dt.month
+    prev_date = df['Дата направления'] - pd.DateOffset(months=1)
+    prev_year = prev_date.dt.year
+    prev_month = prev_date.dt.month
 
-prev_date = df['Дата направления'] - pd.DateOffset(months=1)
-prev_year = prev_date.dt.year
-prev_month = prev_date.dt.month
+    year_call = df['Дата последнего звонка'].dt.year
+    month_call = df['Дата последнего звонка'].dt.month
 
-year_call = df['Дата последнего звонка'].dt.year
-month_call = df['Дата последнего звонка'].dt.month
+    same_month = (
+        (year_call == year_dir) &
+        (month_call == month_dir)
+    )
 
-same_month = (
-    (year_call == year_dir) &
-    (month_call == month_dir)
-)
+    previous_month = (
+        (year_call == prev_year) &
+        (month_call == prev_month)
+    )
 
-previous_month = (
-    (year_call == prev_year) &
-    (month_call == prev_month)
-)
+    mask_call = (
+        (same_month | previous_month) &
+        df['Дата последнего звонка'].notna()
+    )
 
-mask_call = (
-    (same_month | previous_month) &
-    df['Дата последнего звонка'].notna()
-)
-
-df = df[mask_call]
+    df = df[mask_call]
 
     # ---- Боковая панель фильтров ----
     st.sidebar.header("Фильтры")
