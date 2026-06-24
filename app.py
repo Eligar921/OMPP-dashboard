@@ -11,7 +11,6 @@ if uploaded_file is not None:
     df = pd.read_excel(uploaded_file, sheet_name=0)
     df.columns = df.columns.str.strip()
 
-    # Функция поиска столбца – сначала точное совпадение, потом по ключевым словам
     def find_column(keywords, exact_match=None):
         if exact_match is not None:
             for col in df.columns:
@@ -24,12 +23,10 @@ if uploaded_file is not None:
                     return col
         return None
 
-    # Ищем нужные столбцы с приоритетом на точное совпадение для даты последнего звонка
     col_date_direction = find_column(['дата направления', 'направления на координатора'])
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
     col_source = find_column(['источник омпп', 'источник'])
-    # Для даты последнего звонка сначала ищем точное совпадение, потом ключевые слова
     col_last_call = find_column(
         ['последнего звонка до первого статуса', 'последнего звонка', 'последний звонок'],
         exact_match='Дата последнего звонка до первого статуса первой смены'
@@ -40,7 +37,6 @@ if uploaded_file is not None:
     col_project_group = find_column(['желаемые проекты (группа)', 'группа'])
     col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
 
-    # Проверка наличия обязательных столбцов
     if col_date_direction is None:
         st.error("❌ Не найден столбец с датой направления. Доступные столбцы: " + ", ".join(df.columns))
         st.stop()
@@ -60,13 +56,12 @@ if uploaded_file is not None:
         st.error("❌ Не найден ни столбец 'Статус координатора', ни 'Статус лида'")
         st.stop()
 
-    # Переименование (единые имена для кода)
     rename_map = {
         col_date_direction: 'Дата направления',
         col_phone: 'Телефон',
         col_recruiter: 'Рекрутер',
         col_source: 'Источник ОМПП',
-        col_last_call: 'Дата последнего звонка',  # Теперь это точно тот столбец
+        col_last_call: 'Дата последнего звонка',
     }
     if col_coord_status is not None:
         rename_map[col_coord_status] = 'Статус координатора'
@@ -80,24 +75,25 @@ if uploaded_file is not None:
         rename_map[col_project_client] = 'Желаемые проекты (Клиент)'
 
     df = df.rename(columns=rename_map)
-
-    # Удаляем возможные дубликаты столбцов после переименования
     df = df.loc[:, ~df.columns.duplicated()]
 
-    # Преобразование дат
+    # Отладка: покажем, какой столбец используется для даты последнего звонка
+    st.sidebar.write(f"**Столбец для даты звонка:** {col_last_call}")
+
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
-    # Исключаем пустые источники
+    # Исходное количество
+    initial_count = len(df)
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
+    after_source_filter = len(df)
 
-    # ---- Автофильтр: дата звонка в том же или предыдущем месяце (используем правильный столбец) ----
+    # Автофильтр
     df['год_напр'] = df['Дата направления'].dt.year
     df['мес_напр'] = df['Дата направления'].dt.month
     df['год_зв'] = df['Дата последнего звонка'].dt.year
     df['мес_зв'] = df['Дата последнего звонка'].dt.month
 
-    # Предыдущий месяц от даты направления
     prev_month = df['Дата направления'] - pd.DateOffset(months=1)
     df['год_пред_мес'] = prev_month.dt.year
     df['мес_пред_мес'] = prev_month.dt.month
@@ -107,6 +103,12 @@ if uploaded_file is not None:
 
     df['filter_last_call'] = cond_same | cond_prev
     df = df[df['filter_last_call'] & df['Дата последнего звонка'].notna()]
+    after_call_filter = len(df)
+
+    # Отладка: покажем количество на каждом этапе
+    st.sidebar.write(f"**Исходное количество:** {initial_count}")
+    st.sidebar.write(f"**После фильтра по источнику:** {after_source_filter}")
+    st.sidebar.write(f"**После автофильтра по звонку:** {after_call_filter}")
 
     # ---- Боковая панель ----
     st.sidebar.header("Фильтры")
