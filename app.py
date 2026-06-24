@@ -11,7 +11,7 @@ if uploaded_file is not None:
     df = pd.read_excel(uploaded_file, sheet_name=0)
     df.columns = df.columns.str.strip()
 
-    # ---- Поиск столбцов с приоритетом точного совпадения ----
+    # ---- Поиск столбцов ----
     def find_column(keywords, exact_match=None):
         if exact_match is not None:
             for col in df.columns:
@@ -34,10 +34,7 @@ if uploaded_file is not None:
     )
     col_coord_status = find_column(['статус координатора', 'статус координатор'])
     col_lead_status = find_column(['статус лида'])
-    # Город ищем с приоритетом точного совпадения "Город"
-    col_city = find_column(['город'], exact_match='Город')
-    if col_city is None:
-        col_city = find_column(['город'])
+    col_city = find_column(['город'])
     col_project_group = find_column(['желаемые проекты (группа)', 'группа'])
     col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
 
@@ -87,10 +84,12 @@ if uploaded_file is not None:
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
-    # ---- Сохраняем копию ДО фильтра по звонку (для диагностики) ----
+    # ---- Сохраняем исходный df для диагностики ----
     df_raw = df.copy()
 
-    # ---- Исключаем пустые источники ----
+    # ---- Исключаем пустые источники (очищаем от пробелов) ----
+    # Приводим источник к строке и убираем пробелы
+    df['Источник ОМПП'] = df['Источник ОМПП'].astype(str).str.strip()
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
     # ---- Применяем фильтр по дате звонка ----
@@ -106,59 +105,239 @@ if uploaded_file is not None:
     df['filter_last_call'] = same_month | prev_month | prev_month_jan
     df = df[df['filter_last_call'] & df['Дата последнего звонка'].notna()]
 
-    # ---- ДИАГНОСТИКА (в сайдбаре) ----
+    # ---- ДИАГНОСТИКА (полная) ----
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🔍 Диагностика")
-    st.sidebar.write(f"**Найден столбец 'Город':** {col_city if col_city else 'не найден'}")
-    st.sidebar.write("**Все столбцы после переименования:**", list(df.columns))
+    st.sidebar.subheader("🔍 Диагностика фильтра")
 
-    # Данные до фильтра (после исключения пустых источников)
-    df_before = df_raw[df_raw['Источник ОМПП'].notna() & (df_raw['Источник ОМПП'] != '')]
-    total_before = len(df_before)
+    # 1. Всего Москва в исходном файле (до любых фильтров)
+    if 'Город' in df_raw.columns:
+        df_raw['Город'] = df_raw['Город'].astype(str).str.strip()
+        total_moscow_raw = len(df_raw[df_raw['Город'].str.contains('москва', case=False, na=False)])
+        st.sidebar.write(f"**Всего Москва в исходном файле:** {total_moscow_raw}")
 
-    if 'Город' in df_before.columns:
-        moscow_before = len(df_before[df_before['Город'].astype(str).str.contains('москва', case=False, na=False)])
-        # Покажем уникальные значения города (первые 20)
-        unique_cities = df_before['Город'].astype(str).str.strip().value_counts().head(20)
-        st.sidebar.write("**Уникальные города (первые 20):**")
-        st.sidebar.dataframe(unique_cities.reset_index())
-    else:
-        moscow_before = 0
+        # 2. Москва с пустым источником (в исходном файле)
+        moscow_empty_source = len(df_raw[
+            df_raw['Город'].str.contains('москва', case=False, na=False) &
+            ((df_raw['Источник ОМПП'].isna()) | (df_raw['Источник ОМПП'].astype(str).str.strip() == ''))
+        ])
+        st.sidebar.write(f"**Москва с пустым источником:** {moscow_empty_source}")
 
-    total_after = len(df)
-    if 'Город' in df.columns:
-        moscow_after = len(df[df['Город'].astype(str).str.contains('москва', case=False, na=False)])
-    else:
-        moscow_after = 0
-
-    # Всего Москва в исходном файле (без фильтра по источнику)
-    total_moscow_raw = len(df_raw[df_raw['Город'].astype(str).str.contains('москва', case=False, na=False)]) if 'Город' in df_raw.columns else 0
-
-    st.sidebar.write(f"**Всего Москва в исходном файле (без фильтра по источнику):** {total_moscow_raw}")
-    st.sidebar.write(f"**До фильтра по звонку (после исключения пустых источников):**")
-    st.sidebar.write(f"Всего строк: {total_before}")
-    st.sidebar.write(f"Из них Москва: {moscow_before}")
-
-    st.sidebar.write(f"**После фильтра по звонку:**")
-    st.sidebar.write(f"Всего строк: {total_after}")
-    st.sidebar.write(f"Из них Москва: {moscow_after}")
-
-    # Покажем пример отброшенных записей с Москвой
-    if 'Город' in df_before.columns:
-        kept_indices = set(df.index)
-        dropped = df_before[
-            df_before['Город'].astype(str).str.contains('москва', case=False, na=False) &
-            (~df_before.index.isin(kept_indices))
+        # 3. Москва после исключения пустых источников (до фильтра по звонку)
+        df_before = df_raw[
+            df_raw['Источник ОМПП'].notna() &
+            (df_raw['Источник ОМПП'].astype(str).str.strip() != '')
         ]
-        if not dropped.empty:
-            st.sidebar.write(f"**Отброшено записей с Москвой: {len(dropped)}**")
-            st.sidebar.write("Примеры дат звонка у отброшенных:")
-            st.sidebar.dataframe(dropped[['Телефон', 'Дата направления', 'Дата последнего звонка']].head(5))
+        moscow_before = len(df_before[df_before['Город'].str.contains('москва', case=False, na=False)])
+        st.sidebar.write(f"**Москва после исключения пустых источников:** {moscow_before}")
+
+        # 4. Москва после фильтра по звонку
+        moscow_after = len(df[df['Город'].str.contains('москва', case=False, na=False)])
+        st.sidebar.write(f"**Москва после фильтра по звонку:** {moscow_after}")
+
+        # Покажем примеры строк с Москвой и пустым источником
+        moscow_empty_examples = df_raw[
+            df_raw['Город'].str.contains('москва', case=False, na=False) &
+            ((df_raw['Источник ОМПП'].isna()) | (df_raw['Источник ОМПП'].astype(str).str.strip() == ''))
+        ]
+        if not moscow_empty_examples.empty:
+            st.sidebar.write(f"**Примеры записей с Москвой и пустым источником (первые 5):**")
+            st.sidebar.dataframe(
+                moscow_empty_examples[['Телефон', 'Дата направления', 'Дата последнего звонка', 'Источник ОМПП']].head(5)
+            )
         else:
-            st.sidebar.write("Нет отброшенных записей с Москвой (все сохранены).")
+            st.sidebar.write("Нет записей с Москвой и пустым источником.")
+    else:
+        st.sidebar.warning("Столбец 'Город' не найден.")
 
     # ---- ОСТАЛЬНАЯ ЧАСТЬ КОДА (БЕЗ ИЗМЕНЕНИЙ) ----
-    # ... (весь остальной код, который вы уже использовали, начиная с боковой панели)
+    st.sidebar.header("Фильтры")
+    sources = sorted(df['Источник ОМПП'].unique())
+    selected_sources = st.sidebar.multiselect("Источник ОМПП", options=sources, default=sources)
+    df_filtered = df[df['Источник ОМПП'].isin(selected_sources)]
+
+    min_date = df_filtered['Дата направления'].min().date()
+    max_date = df_filtered['Дата направления'].max().date()
+    date_range = st.sidebar.date_input(
+        "Диапазон дат направления",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+    if len(date_range) == 2:
+        start_date, end_date = date_range
+        df_filtered = df_filtered[
+            (df_filtered['Дата направления'].dt.date >= start_date) &
+            (df_filtered['Дата направления'].dt.date <= end_date)
+        ]
+
+    df_filtered = df_filtered.reset_index(drop=True)
+
+    # ---- Таблица рекрутеров ----
+    recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+    recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
+    recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
+
+    st.subheader("📋 Количество направленных кандидатов по рекрутерам")
+    st.dataframe(
+        recruiter_counts,
+        use_container_width=True,
+        column_config={
+            "Рекрутер": st.column_config.TextColumn("Рекрутер", width="medium"),
+            "Кол-во кандидатов": st.column_config.NumberColumn("Кол-во кандидатов", width="small")
+        }
+    )
+
+    # ---- График по источникам ----
+    st.subheader("📊 Кол-во направленных кандидатов по источникам")
+    available_sources = sorted(df_filtered['Источник ОМПП'].unique())
+    if not available_sources:
+        st.warning("Нет доступных источников для отображения.")
+    else:
+        selected_source_for_chart = st.selectbox("Выберите источник для отображения:", options=available_sources)
+
+        df_chart = df_filtered[df_filtered['Источник ОМПП'] == selected_source_for_chart]
+        chart_data = df_chart.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+        chart_data.columns = ['Рекрутер', 'Кол-во']
+        chart_data = chart_data.sort_values('Кол-во', ascending=False)
+
+        if chart_data.empty:
+            st.info("Нет данных для выбранного источника.")
+        else:
+            fig = px.bar(
+                chart_data,
+                x='Кол-во',
+                y='Рекрутер',
+                orientation='h',
+                title=f"Источник: {selected_source_for_chart}",
+                labels={'Кол-во': 'Кол-во направленных кандидатов', 'Рекрутер': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Blues',
+                height=500
+            )
+            fig.update_traces(textposition='outside')
+            fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Детальная таблица по источникам
+        st.subheader("📋 Детальная разбивка по источникам для каждого рекрутера")
+        detail = df_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон'].nunique().reset_index()
+        detail.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
+
+        recruiter_total = detail.groupby('Рекрутер')['Кол-во'].sum().reset_index()
+        recruiter_total.columns = ['Рекрутер', 'Всего_рекрутер']
+
+        grand_total = detail['Кол-во'].sum()
+
+        detail = detail.merge(recruiter_total, on='Рекрутер', how='left')
+        detail['% от рекрутера'] = (detail['Кол-во'] / detail['Всего_рекрутер'] * 100).round(1)
+        detail['% от всех'] = (detail['Кол-во'] / grand_total * 100).round(1)
+
+        detail['% от рекрутера'] = detail['% от рекрутера'].astype(str) + '%'
+        detail['% от всех'] = detail['% от всех'].astype(str) + '%'
+
+        detail = detail.sort_values(['Рекрутер', 'Кол-во'], ascending=[True, False])
+
+        st.dataframe(
+            detail[['Рекрутер', 'Источник ОМПП', 'Кол-во', '% от рекрутера', '% от всех']],
+            use_container_width=True,
+            column_config={
+                "Рекрутер": "Рекрутер",
+                "Источник ОМПП": "Источник",
+                "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                "% от рекрутера": st.column_config.TextColumn("% от рекрутера"),
+                "% от всех": st.column_config.TextColumn("% от всех"),
+            }
+        )
+
+    # ---- Приглашенные по проектам ----
+    if 'Желаемые проекты (Группа)' in df_filtered.columns:
+        st.subheader("📊 Приглашенные по проектам")
+        df_projects = df_filtered.copy()
+        if 'Желаемые проекты (Клиент)' in df_projects.columns:
+            df_projects['Проект'] = df_projects.apply(
+                lambda row: row['Желаемые проекты (Клиент)'] if row['Желаемые проекты (Группа)'] == 'Без группы' else row['Желаемые проекты (Группа)'],
+                axis=1
+            )
+        else:
+            df_projects['Проект'] = df_projects['Желаемые проекты (Группа)']
+
+        df_projects = df_projects[df_projects['Проект'].notna() & (df_projects['Проект'] != '')]
+
+        project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
+        project_counts.columns = ['Проект', 'Кол-во']
+        project_counts = project_counts.sort_values('Кол-во', ascending=False)
+
+        if not project_counts.empty:
+            fig_proj = px.bar(
+                project_counts,
+                x='Кол-во',
+                y='Проект',
+                orientation='h',
+                title="Количество направленных кандидатов по проектам",
+                labels={'Кол-во': 'Кол-во кандидатов', 'Проект': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Teal',
+                height=500
+            )
+            fig_proj.update_traces(textposition='outside')
+            fig_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_proj, use_container_width=True)
+        else:
+            st.info("Нет данных по проектам.")
+    else:
+        st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
+
+    # ---- Приглашенные по городам ----
+    if 'Город' in df_filtered.columns:
+        st.subheader("🏙️ Приглашенные по городам")
+
+        city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'].astype(str).str.strip() != '')].copy()
+        city_data['Город'] = city_data['Город'].astype(str).str.strip()
+
+        if not city_data.empty:
+            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
+            city_counts.columns = ['Город', 'Кол-во']
+            total_candidates = df_filtered['Телефон'].nunique()
+            city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
+            city_counts = city_counts.sort_values('Кол-во', ascending=False)
+
+            st.dataframe(
+                city_counts,
+                use_container_width=True,
+                column_config={
+                    "Город": "Город",
+                    "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                    "% от всех": st.column_config.TextColumn("% от всех"),
+                }
+            )
+
+            fig_city = px.bar(
+                city_counts,
+                x='Кол-во',
+                y='Город',
+                orientation='h',
+                title="Количество направленных кандидатов по городам",
+                labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Viridis',
+                height=700
+            )
+            fig_city.update_traces(textposition='outside')
+            fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_city, use_container_width=True)
+        else:
+            st.info("Нет данных по городам.")
+    else:
+        st.info("Столбец 'Город' не найден, таблица городов пропущена.")
+
+    # ---- Статистика в сайдбаре ----
+    st.sidebar.markdown("---")
+    st.sidebar.write(f"🧾 Всего строк после фильтров: **{len(df_filtered)}**")
+    st.sidebar.write(f"👥 Уникальных рекрутеров: **{df_filtered['Рекрутер'].nunique()}**")
+    st.sidebar.write(f"📞 Уникальных телефонов: **{df_filtered['Телефон'].nunique()}**")
 
 else:
     st.info("👈 Загрузите файл Excel для начала работы.")
