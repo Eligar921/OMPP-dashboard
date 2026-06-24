@@ -12,12 +12,15 @@ def normalize_project(project_name):
     if not isinstance(project_name, str):
         return project_name
     project_name = project_name.strip()
+    # Убираем лишние пробелы внутри
+    project_name = ' '.join(project_name.split())
     if project_name == 'Пятёрочка агентская':
         return 'Пятёрочка'
     if project_name == 'Магнит Косметик':
         return 'Магнит'
     if project_name == 'ООО "Таймбук"':
         return 'Гулливер'
+    # Для остальных просто возвращаем очищенное название
     return project_name
 
 # ---- Функция поиска столбца ----
@@ -35,26 +38,37 @@ def find_column(df, keywords, exact_match=None):
 
 # ---- Функция для парсинга даты из заголовков "Диаграмма" ----
 def parse_diagram_date(date_str):
+    """
+    Преобразует строки вида "01.фев", "02.мар", "15.июн" в datetime.
+    """
     if not isinstance(date_str, str):
         return pd.NaT
     date_str = date_str.strip()
+    # Сначала пробуем стандартный парсинг
     try:
         return pd.to_datetime(date_str, errors='coerce')
     except:
         pass
+    # Сопоставление русских месяцев
     month_map = {
-        'янв': 'Jan', 'фев': 'Feb', 'мар': 'Mar', 'апр': 'Apr',
-        'май': 'May', 'июн': 'Jun', 'июл': 'Jul', 'авг': 'Aug',
-        'сен': 'Sep', 'окт': 'Oct', 'ноя': 'Nov', 'дек': 'Dec'
+        'янв': 1, 'фев': 2, 'мар': 3, 'апр': 4,
+        'май': 5, 'июн': 6, 'июл': 7, 'авг': 8,
+        'сен': 9, 'окт': 10, 'ноя': 11, 'дек': 12
     }
-    match = re.match(r'^(\d{2})\.(\w{3})$', date_str)
+    # Ищем шаблон "дд.мес"
+    match = re.match(r'^(\d{1,2})\.(\w{3})$', date_str)
     if match:
         day, month_ru = match.groups()
-        month_en = month_map.get(month_ru.lower())
-        if month_en:
+        day = int(day)
+        month = month_map.get(month_ru.lower())
+        if month is not None:
+            # Определяем год: если месяц >= 2 и день >= 1, то год 2026 (по данным)
+            # или можно взять текущий год, но в данных все даты около 2026
             year = 2026
+            # Но если месяц февраль и день > 28, то это может быть 2024? Нет, в данных 2026.
+            # Просто берём 2026.
             try:
-                return pd.to_datetime(f"{day} {month_en} {year}", format='%d %b %Y')
+                return datetime(year, month, day)
             except:
                 return pd.NaT
     return pd.NaT
@@ -753,7 +767,7 @@ if df_main_filtered is not None:
     if df_worked_main.empty or 'Проект первой подтвержденной смены' not in df_worked_main.columns:
         main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
     else:
-        # Приглашенные по проектам (все кандидаты) – нормализуем названия
+        # Приглашенные по проектам (все кандидаты)
         df_projects_all = df_main_filtered.copy()
         if 'Желаемые проекты (Клиент)' in df_projects_all.columns:
             df_projects_all['Проект'] = df_projects_all.apply(
@@ -763,15 +777,12 @@ if df_main_filtered is not None:
         else:
             df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)'].apply(normalize_project)
         
-        # Дополнительно удаляем лишние пробелы
-        df_projects_all['Проект'] = df_projects_all['Проект'].astype(str).str.strip()
         df_projects_all = df_projects_all[df_projects_all['Проект'].notna() & (df_projects_all['Проект'] != '')]
         invited_counts = df_projects_all.groupby('Проект')['Телефон'].nunique().reset_index()
         invited_counts.columns = ['Проект', 'Кол-во приглашенных']
         
-        # Вышедшие из приглашенных – также нормализуем
+        # Вышедшие из приглашенных
         df_worked_main['Проект'] = df_worked_main['Проект первой подтвержденной смены'].apply(normalize_project)
-        df_worked_main['Проект'] = df_worked_main['Проект'].astype(str).str.strip()
         worked_main_counts = df_worked_main.groupby('Проект')['Телефон'].nunique().reset_index()
         worked_main_counts.columns = ['Проект', 'Кол-во вышедших (из приглашенных)']
         
@@ -781,12 +792,11 @@ if df_main_filtered is not None:
 else:
     main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
 
-# Данные из KPI (вышедшие с дошедшими) – нормализуем названия
+# Данные из KPI (вышедшие с дошедшими)
 if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
     kpi_project_counts = df_kpi_filtered.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
     kpi_project_counts.columns = ['Проект', 'Кол-во вышедших (с дошедшими)']
-    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(normalize_project)
-    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].astype(str).str.strip()
+    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x) if isinstance(x, str) else x)
 else:
     kpi_project_counts = pd.DataFrame(columns=['Проект', 'Кол-во вышедших (с дошедшими)'])
 
@@ -1003,7 +1013,7 @@ if df_diagram is not None:
         row_less_hour = None
         date_row = None
 
-        # Ищем строки с данными по всей строке (не только в первом столбце)
+        # Ищем строки с данными
         for idx, row in df_diagram_reset.iterrows():
             # Преобразуем все ячейки строки в строки и объединяем
             row_str = ' '.join([str(cell).strip().lower() for cell in row if pd.notna(cell)])
@@ -1017,11 +1027,12 @@ if df_diagram is not None:
                     cell_val = row.iloc[col]
                     if pd.notna(cell_val):
                         cell_str = str(cell_val).strip()
-                        if re.match(r'^\d{2}\.\w{3}$', cell_str) or re.match(r'^\d{4}-\d{2}-\d{2}', cell_str):
+                        if re.match(r'^\d{1,2}\.\w{3}$', cell_str) or re.match(r'^\d{4}-\d{2}-\d{2}', cell_str):
                             date_row = idx
                             break
 
         if date_row is None:
+            # Если не нашли строку с датами, попробуем взять первую строку
             date_row = 0
         if row_15min is None:
             row_15min = 1
@@ -1030,7 +1041,7 @@ if df_diagram is not None:
 
         # Собираем даты и значения
         dates = []
-        for col in range(1, len(df_diagram_reset.columns)):
+        for col in range(len(df_diagram_reset.columns)):
             val = df_diagram_reset.iloc[date_row, col]
             if pd.notna(val):
                 date_val = parse_diagram_date(str(val))
@@ -1060,6 +1071,7 @@ if df_diagram is not None:
                 'В течение 15 минут': [v for _, v in data_15min],
                 'Менее часа': [v for _, v in data_less_hour]
             })
+            # Группировка по месяцам
             df_diag_parsed['Месяц'] = df_diag_parsed['Дата'].dt.to_period('M').astype(str)
             monthly_avg = df_diag_parsed.groupby('Месяц')[['В течение 15 минут', 'Менее часа']].mean().reset_index()
             monthly_avg['В течение 15 минут'] = monthly_avg['В течение 15 минут'].round(1)
@@ -1081,6 +1093,6 @@ if df_diagram is not None:
 
             st.dataframe(monthly_avg, use_container_width=True)
         else:
-            st.warning("Не удалось извлечь данные из листа 'Диаграмма'.")
+            st.warning("Не удалось извлечь данные из листа 'Диаграмма'. Проверьте структуру файла.")
     except Exception as e:
         st.error(f"Ошибка при обработке листа 'Диаграмма': {e}")
