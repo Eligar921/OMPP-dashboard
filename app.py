@@ -23,7 +23,12 @@ if uploaded_file is not None:
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
     col_source = find_column(['источник омпп', 'источник'])
-    col_last_call = find_column(['последнего звонка', 'последний звонок'])
+col_last_call = find_column([
+    'дата последнего звонка до первого статуса первой смены',
+    'последнего звонка до первого статуса',
+    'последнего звонка',
+    'последний звонок'
+])
     col_coord_status = find_column(['статус координатора', 'статус координатор'])
     col_lead_status = find_column(['статус лида'])
     col_city = find_column(['город'])
@@ -82,12 +87,24 @@ if uploaded_file is not None:
     df['год_зв'] = df['Дата последнего звонка'].dt.year
     df['мес_зв'] = df['Дата последнего звонка'].dt.month
 
-    cond_same = (df['год_зв'] == df['год_напр']) & (df['мес_зв'] == df['мес_напр'])
-    cond_prev = (df['год_зв'] == df['год_напр']) & (df['мес_зв'] == df['мес_напр'] - 1)
-    cond_prev_year = (df['год_зв'] == df['год_напр'] - 1) & (df['мес_напр'] == 1) & (df['мес_зв'] == 12)
+    prev_month = df['Дата направления'] - pd.DateOffset(months=1)
 
-    df['filter_last_call'] = cond_same | cond_prev | cond_prev_year
-    df = df[df['filter_last_call'] & df['Дата последнего звонка'].notna()]
+cond_same = (
+    (df['год_зв'] == df['год_напр']) &
+    (df['мес_зв'] == df['мес_напр'])
+)
+
+cond_prev = (
+    (df['год_зв'] == prev_month.dt.year) &
+    (df['мес_зв'] == prev_month.dt.month)
+)
+
+df['filter_last_call'] = cond_same | cond_prev
+
+df = df[
+    df['filter_last_call'] &
+    df['Дата последнего звонка'].notna()
+]
 
     st.sidebar.header("Фильтры")
     sources = sorted(df['Источник ОМПП'].unique())
