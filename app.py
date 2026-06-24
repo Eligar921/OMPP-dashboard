@@ -37,7 +37,6 @@ if uploaded_file is not None:
     col_city = find_column(['город'])
     col_project_group = find_column(['желаемые проекты (группа)', 'группа'])
     col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
-    # Новые столбцы для вышедших
     col_project_first = find_column(['проект первой подтвержденной смены', 'проект первой подтвержденной'])
     col_city_first = find_column(['город первой подтвержденной смены за всю жизнь', 'город первой подтвержденной'])
 
@@ -131,7 +130,7 @@ if uploaded_file is not None:
 
     df_filtered = df_filtered.reset_index(drop=True)
 
-    # ---- Таблица рекрутеров ----
+    # ---- 1. Таблица рекрутеров ----
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
     recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
@@ -146,7 +145,7 @@ if uploaded_file is not None:
         }
     )
 
-    # ---- График по источникам (оставляем) ----
+    # ---- 2. График по источникам ----
     st.subheader("📊 Кол-во направленных кандидатов по источникам")
     available_sources = sorted(df_filtered['Источник ОМПП'].unique())
     if not available_sources:
@@ -209,7 +208,7 @@ if uploaded_file is not None:
             }
         )
 
-    # ---- Приглашенные по проектам ----
+    # ---- 3. Приглашенные по проектам (график) ----
     if 'Желаемые проекты (Группа)' in df_filtered.columns:
         st.subheader("📊 Приглашенные по проектам")
         df_projects = df_filtered.copy()
@@ -248,7 +247,50 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- Приглашенные по городам (только таблица, без диаграммы) ----
+    # ---- 4. ВЫШЕДШИЕ ПО ПРОЕКТАМ (таблица) ----
+    # Определяем "вышедших" по статусу координатора или лида
+    if 'Статус координатора' in df_filtered.columns:
+        df_worked = df_filtered[df_filtered['Статус координатора'] == 'went_work']
+    else:
+        df_worked = df_filtered[df_filtered['Статус лида'] == 'worked']
+
+    if not df_worked.empty and 'Проект первой подтвержденной смены' in df_worked.columns:
+        st.subheader("✅ Вышедшие по проектам")
+
+        source_options = ['Все'] + sorted(df_worked['Источник ОМПП'].unique())
+        selected_source_worked = st.selectbox(
+            "Выберите источник для фильтрации вышедших:",
+            options=source_options,
+            key="worked_source_project"
+        )
+
+        if selected_source_worked == 'Все':
+            df_worked_filtered = df_worked
+        else:
+            df_worked_filtered = df_worked[df_worked['Источник ОМПП'] == selected_source_worked]
+
+        worked_projects = df_worked_filtered.groupby('Проект первой подтвержденной смены')['Телефон'].nunique().reset_index()
+        worked_projects.columns = ['Проект', 'Кол-во вышедших']
+        total_worked = worked_projects['Кол-во вышедших'].sum()
+        if total_worked > 0:
+            worked_projects['% от всех вышедших'] = (worked_projects['Кол-во вышедших'] / total_worked * 100).round(1).astype(str) + '%'
+        else:
+            worked_projects['% от всех вышедших'] = '0%'
+        worked_projects = worked_projects.sort_values('Кол-во вышедших', ascending=False)
+
+        st.dataframe(
+            worked_projects,
+            use_container_width=True,
+            column_config={
+                "Проект": "Проект",
+                "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d"),
+                "% от всех вышедших": st.column_config.TextColumn("% от всех вышедших"),
+            }
+        )
+    else:
+        st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
+
+    # ---- 5. Приглашенные по городам (только таблица) ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
 
@@ -276,49 +318,7 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Город' не найден, таблица городов пропущена.")
 
-    # ---- ВЫШЕДШИЕ ПО ПРОЕКТАМ ----
-    # Определяем "вышедших" по статусу координатора или лида
-    if 'Статус координатора' in df_filtered.columns:
-        df_worked = df_filtered[df_filtered['Статус координатора'] == 'went_work']
-    else:
-        df_worked = df_filtered[df_filtered['Статус лида'] == 'worked']
-
-    if not df_worked.empty and 'Проект первой подтвержденной смены' in df_worked.columns:
-        st.subheader("✅ Вышедшие по проектам")
-
-        # Список источников для выбора (из отфильтрованных)
-        source_options = ['Все'] + sorted(df_worked['Источник ОМПП'].unique())
-        selected_source_worked = st.selectbox(
-            "Выберите источник для фильтрации вышедших:",
-            options=source_options,
-            key="worked_source_project"
-        )
-
-        if selected_source_worked == 'Все':
-            df_worked_filtered = df_worked
-        else:
-            df_worked_filtered = df_worked[df_worked['Источник ОМПП'] == selected_source_worked]
-
-        # Группировка по проекту
-        worked_projects = df_worked_filtered.groupby('Проект первой подтвержденной смены')['Телефон'].nunique().reset_index()
-        worked_projects.columns = ['Проект', 'Кол-во вышедших']
-        total_worked = worked_projects['Кол-во вышедших'].sum()
-        worked_projects['% от всех вышедших'] = (worked_projects['Кол-во вышедших'] / total_worked * 100).round(1).astype(str) + '%'
-        worked_projects = worked_projects.sort_values('Кол-во вышедших', ascending=False)
-
-        st.dataframe(
-            worked_projects,
-            use_container_width=True,
-            column_config={
-                "Проект": "Проект",
-                "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d"),
-                "% от всех вышедших": st.column_config.TextColumn("% от всех вышедших"),
-            }
-        )
-    else:
-        st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
-
-    # ---- ВЫШЕДШИЕ ПО ГОРОДАМ (первая подтвержденная смена) ----
+    # ---- 6. ВЫШЕДШИЕ ПО ГОРОДАМ (таблица) ----
     if not df_worked.empty and 'Город первой подтвержденной смены за всю жизнь' in df_worked.columns:
         st.subheader("✅ Вышедшие по городам")
 
@@ -334,7 +334,6 @@ if uploaded_file is not None:
         else:
             df_worked_filtered_city = df_worked[df_worked['Источник ОМПП'] == selected_source_worked_city]
 
-        # Очищаем город
         city_worked = df_worked_filtered_city[
             df_worked_filtered_city['Город первой подтвержденной смены за всю жизнь'].notna() &
             (df_worked_filtered_city['Город первой подтвержденной смены за всю жизнь'].astype(str).str.strip() != '')
@@ -345,7 +344,10 @@ if uploaded_file is not None:
             worked_cities = city_worked.groupby('Город')['Телефон'].nunique().reset_index()
             worked_cities.columns = ['Город', 'Кол-во вышедших']
             total_worked_city = worked_cities['Кол-во вышедших'].sum()
-            worked_cities['% от всех вышедших'] = (worked_cities['Кол-во вышедших'] / total_worked_city * 100).round(1).astype(str) + '%'
+            if total_worked_city > 0:
+                worked_cities['% от всех вышедших'] = (worked_cities['Кол-во вышедших'] / total_worked_city * 100).round(1).astype(str) + '%'
+            else:
+                worked_cities['% от всех вышедших'] = '0%'
             worked_cities = worked_cities.sort_values('Кол-во вышедших', ascending=False)
 
             st.dataframe(
