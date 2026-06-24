@@ -5,11 +5,20 @@ import plotly.express as px
 st.set_page_config(page_title="ОМПП Дашборд", layout="wide")
 st.title("📊 Дашборд ОМПП")
 
-uploaded_file = st.file_uploader("Загрузите Excel файл 'отчет по дате направления'", type=["xlsx"])
+uploaded_files = st.file_uploader(
+    "Загрузите один или несколько Excel файлов 'отчет по дате направления'",
+    type=["xlsx"],
+    accept_multiple_files=True
+)
 
-if uploaded_file is not None:
-    df = pd.read_excel(uploaded_file, sheet_name=0)
-    df.columns = df.columns.str.strip()
+if uploaded_files:
+    # Объединяем все загруженные файлы
+    df_list = []
+    for file in uploaded_files:
+        df_temp = pd.read_excel(file, sheet_name=0)
+        df_temp.columns = df_temp.columns.str.strip()
+        df_list.append(df_temp)
+    df = pd.concat(df_list, ignore_index=True)
 
     # Функция поиска столбца по ключевым словам
     def find_column(keywords):
@@ -118,7 +127,7 @@ if uploaded_file is not None:
             (df_filtered['Дата направления'].dt.date <= end_date)
         ]
 
-    # Сброс индекса для избежания проблем с дублирующимися индексами
+    # Сбрасываем индекс, чтобы избежать проблем с дублирующимися индексами
     df_filtered = df_filtered.reset_index(drop=True)
 
     # ---- Таблица: количество кандидатов по рекрутерам (с ограничением ширины) ----
@@ -164,12 +173,7 @@ if uploaded_file is not None:
                 color_continuous_scale='Blues'
             )
             fig.update_traces(textposition='outside')
-            fig.update_layout(
-                yaxis={'categoryorder': 'total ascending'},
-                showlegend=False,
-                height=500,
-                margin=dict(l=10, r=10, t=40, b=10)
-            )
+            fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
 
         # ---- Детальная таблица: рекрутер → источник (кол-во, % от рекрутера, % от всех) ----
@@ -216,12 +220,11 @@ if uploaded_file is not None:
             df_projects['Проект'] = df_projects['Желаемые проекты (Группа)']
 
         df_projects = df_projects[df_projects['Проект'].notna() & (df_projects['Проект'] != '')]
+        project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
+        project_counts.columns = ['Проект', 'Кол-во']
+        project_counts = project_counts.sort_values('Кол-во', ascending=False)
 
-        if not df_projects.empty:
-            project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
-            project_counts.columns = ['Проект', 'Кол-во']
-            project_counts = project_counts.sort_values('Кол-во', ascending=False)
-
+        if not project_counts.empty:
             fig_proj = px.bar(
                 project_counts,
                 x='Кол-во',
@@ -234,24 +237,20 @@ if uploaded_file is not None:
                 color_continuous_scale='Teal'
             )
             fig_proj.update_traces(textposition='outside')
-            fig_proj.update_layout(
-                yaxis={'categoryorder': 'total ascending'},
-                showlegend=False,
-                height=600,  # Увеличиваем высоту для читаемости
-                margin=dict(l=10, r=10, t=40, b=10)
-            )
+            fig_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False, height=600)
             st.plotly_chart(fig_proj, use_container_width=True)
         else:
             st.info("Нет данных по проектам.")
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- НОВЫЙ БЛОК: Приглашенные по городам ----
+    # ---- НОВЫЙ БЛОК: Приглашенные по городам (с исправлением ошибки) ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
-        # Используем .loc для корректной фильтрации
+        # Создаём маску для непустых городов (без использования .loc, чтобы избежать ошибки)
         city_mask = df_filtered['Город'].notna() & (df_filtered['Город'] != '')
-        city_data = df_filtered.loc[city_mask].copy()
+        city_data = df_filtered[city_mask].copy()
+
         if not city_data.empty:
             city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
             city_counts.columns = ['Город', 'Кол-во']
@@ -260,6 +259,7 @@ if uploaded_file is not None:
             city_counts['% от всех'] = city_counts['% от всех'].astype(str) + '%'
             city_counts = city_counts.sort_values('Кол-во', ascending=False)
 
+            # Отображаем таблицу
             st.dataframe(
                 city_counts,
                 use_container_width=True,
@@ -269,6 +269,28 @@ if uploaded_file is not None:
                     "% от всех": st.column_config.TextColumn("% от всех"),
                 }
             )
+
+            # ---- Диаграмма по городам (увеличенная) ----
+            st.subheader("📊 Приглашенные по городам (диаграмма)")
+            fig_city = px.bar(
+                city_counts,
+                x='Кол-во',
+                y='Город',
+                orientation='h',
+                title="Количество направленных кандидатов по городам",
+                labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Viridis'
+            )
+            fig_city.update_traces(textposition='outside')
+            fig_city.update_layout(
+                yaxis={'categoryorder': 'total ascending'},
+                showlegend=False,
+                height=700,  # Увеличиваем высоту для читаемости
+                width=900     # Можно задать ширину, но обычно use_container_width работает
+            )
+            st.plotly_chart(fig_city, use_container_width=True)
         else:
             st.info("Нет данных по городам.")
     else:
@@ -281,4 +303,4 @@ if uploaded_file is not None:
     st.sidebar.write(f"📞 Уникальных телефонов: **{df_filtered['Телефон'].nunique()}**")
 
 else:
-    st.info("👈 Загрузите файл Excel для начала работы.")
+    st.info("👈 Загрузите один или несколько Excel файлов для начала работы.")
