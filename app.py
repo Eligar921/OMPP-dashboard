@@ -111,9 +111,12 @@ if uploaded_file is not None:
     df_before = df_raw[df_raw['Источник ОМПП'].notna() & (df_raw['Источник ОМПП'] != '')]
     total_before = len(df_before)
 
-    # Определяем Москву через contains (регистронезависимо)
     if 'Город' in df_before.columns:
         moscow_before = len(df_before[df_before['Город'].astype(str).str.contains('москва', case=False, na=False)])
+        # Уникальные города (первые 20)
+        unique_cities = df_before['Город'].astype(str).str.strip().value_counts().head(20)
+        st.sidebar.write("**Уникальные города (первые 20):**")
+        st.sidebar.dataframe(unique_cities.reset_index())
     else:
         moscow_before = 0
 
@@ -123,7 +126,11 @@ if uploaded_file is not None:
     else:
         moscow_after = 0
 
-    st.sidebar.write(f"**До фильтра по звонку:**")
+    # Всего Москва в исходном файле (без фильтра по источнику)
+    total_moscow_raw = len(df_raw[df_raw['Город'].astype(str).str.contains('москва', case=False, na=False)]) if 'Город' in df_raw.columns else 0
+
+    st.sidebar.write(f"**Всего Москва в исходном файле (без фильтра по источнику):** {total_moscow_raw}")
+    st.sidebar.write(f"**До фильтра по звонку (после исключения пустых источников):**")
     st.sidebar.write(f"Всего строк: {total_before}")
     st.sidebar.write(f"Из них Москва: {moscow_before}")
 
@@ -133,7 +140,6 @@ if uploaded_file is not None:
 
     # Покажем пример отброшенных записей с Москвой
     if 'Город' in df_before.columns:
-        # Индексы после фильтра
         kept_indices = set(df.index)
         dropped = df_before[
             df_before['Город'].astype(str).str.contains('москва', case=False, na=False) &
@@ -146,8 +152,7 @@ if uploaded_file is not None:
         else:
             st.sidebar.write("Нет отброшенных записей с Москвой (все сохранены).")
 
-    # ---- ОСТАЛЬНАЯ ЧАСТЬ КОДА (БЕЗ ИЗМЕНЕНИЙ, но с учётом contains для города) ----
-    # ---- Боковая панель ----
+    # ---- ОСТАЛЬНАЯ ЧАСТЬ КОДА (БЕЗ ИЗМЕНЕНИЙ) ----
     st.sidebar.header("Фильтры")
     sources = sorted(df['Источник ОМПП'].unique())
     selected_sources = st.sidebar.multiselect("Источник ОМПП", options=sources, default=sources)
@@ -287,11 +292,10 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- Приглашенные по городам (исправлено: группировка по точному значению "Город", но с очисткой пробелов) ----
+    # ---- Приглашенные по городам ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
 
-        # Очищаем пробелы и пустые значения
         city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'].astype(str).str.strip() != '')].copy()
         city_data['Город'] = city_data['Город'].astype(str).str.strip()
 
@@ -312,7 +316,6 @@ if uploaded_file is not None:
                 }
             )
 
-            # Диаграмма по городам
             fig_city = px.bar(
                 city_counts,
                 x='Кол-во',
