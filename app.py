@@ -11,6 +11,7 @@ if uploaded_file is not None:
     df = pd.read_excel(uploaded_file, sheet_name=0)
     df.columns = df.columns.str.strip()
 
+    # ---- Поиск столбцов ----
     def find_column(keywords, exact_match=None):
         if exact_match is not None:
             for col in df.columns:
@@ -27,6 +28,7 @@ if uploaded_file is not None:
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
     col_source = find_column(['источник омпп', 'источник'])
+    # Ищем точное совпадение для даты последнего звонка до первого статуса
     col_last_call = find_column(
         ['последнего звонка до первого статуса', 'последнего звонка', 'последний звонок'],
         exact_match='Дата последнего звонка до первого статуса первой смены'
@@ -37,6 +39,7 @@ if uploaded_file is not None:
     col_project_group = find_column(['желаемые проекты (группа)', 'группа'])
     col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
 
+    # ---- Проверка обязательных столбцов ----
     if col_date_direction is None:
         st.error("❌ Не найден столбец с датой направления. Доступные столбцы: " + ", ".join(df.columns))
         st.stop()
@@ -50,18 +53,19 @@ if uploaded_file is not None:
         st.error("❌ Не найден столбец 'Источник ОМПП'")
         st.stop()
     if col_last_call is None:
-        st.error("❌ Не найден столбец с датой последнего звонка до первого статуса первой смены")
+        st.error("❌ Не найден столбец 'Дата последнего звонка до первого статуса первой смены'")
         st.stop()
     if col_coord_status is None and col_lead_status is None:
         st.error("❌ Не найден ни столбец 'Статус координатора', ни 'Статус лида'")
         st.stop()
 
+    # ---- Переименование ----
     rename_map = {
         col_date_direction: 'Дата направления',
         col_phone: 'Телефон',
         col_recruiter: 'Рекрутер',
         col_source: 'Источник ОМПП',
-        col_last_call: 'Дата последнего звонка',
+        col_last_call: 'Дата последнего звонка',  # теперь это точно нужный столбец
     }
     if col_coord_status is not None:
         rename_map[col_coord_status] = 'Статус координатора'
@@ -75,42 +79,33 @@ if uploaded_file is not None:
         rename_map[col_project_client] = 'Желаемые проекты (Клиент)'
 
     df = df.rename(columns=rename_map)
-    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.loc[:, ~df.columns.duplicated()]  # удаляем дубликаты столбцов
 
-    # Отладка: покажем, какой столбец используется для даты последнего звонка
-    st.sidebar.write(f"**Столбец для даты звонка:** {col_last_call}")
-
+    # ---- Преобразование дат ----
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
-    # Исходное количество
-    initial_count = len(df)
+    # ---- Исключаем пустые источники ----
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
-    after_source_filter = len(df)
 
-    # Автофильтр
-    df['год_напр'] = df['Дата направления'].dt.year
-    df['мес_напр'] = df['Дата направления'].dt.month
-    df['год_зв'] = df['Дата последнего звонка'].dt.year
-    df['мес_зв'] = df['Дата последнего звонка'].dt.month
+    # ---- АВТОФИЛЬТР: дата звонка в ТОМ ЖЕ или ПРЕДЫДУЩЕМ месяце (от даты направления) ----
+    # Создаём маску напрямую, без лишних колонок
+    year_dir = df['Дата направления'].dt.year
+    month_dir = df['Дата направления'].dt.month
+    year_call = df['Дата последнего звонка'].dt.year
+    month_call = df['Дата последнего звонка'].dt.month
 
-    prev_month = df['Дата направления'] - pd.DateOffset(months=1)
-    df['год_пред_мес'] = prev_month.dt.year
-    df['мес_пред_мес'] = prev_month.dt.month
+    # Тот же месяц
+    same_month = (year_call == year_dir) & (month_call == month_dir)
 
-    cond_same = (df['год_зв'] == df['год_напр']) & (df['мес_зв'] == df['мес_напр'])
-    cond_prev = (df['год_зв'] == df['год_пред_мес']) & (df['мес_зв'] == df['мес_пред_мес'])
+    # Предыдущий месяц (с учётом перехода через год)
+    prev_month = (year_call == year_dir) & (month_call == month_dir - 1)
+    prev_month_jan = (year_call == year_dir - 1) & (month_dir == 1) & (month_call == 12)
 
-    df['filter_last_call'] = cond_same | cond_prev
-    df = df[df['filter_last_call'] & df['Дата последнего звонка'].notna()]
-    after_call_filter = len(df)
+    mask_call = (same_month | prev_month | prev_month_jan) & df['Дата последнего звонка'].notna()
+    df = df[mask_call]
 
-    # Отладка: покажем количество на каждом этапе
-    st.sidebar.write(f"**Исходное количество:** {initial_count}")
-    st.sidebar.write(f"**После фильтра по источнику:** {after_source_filter}")
-    st.sidebar.write(f"**После автофильтра по звонку:** {after_call_filter}")
-
-    # ---- Боковая панель ----
+    # ---- Боковая панель фильтров ----
     st.sidebar.header("Фильтры")
     sources = sorted(df['Источник ОМПП'].unique())
     selected_sources = st.sidebar.multiselect("Источник ОМПП", options=sources, default=sources)
@@ -133,7 +128,7 @@ if uploaded_file is not None:
 
     df_filtered = df_filtered.reset_index(drop=True)
 
-    # ---- Таблица рекрутеров ----
+    # ---- ТАБЛИЦА: рекрутеры ----
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
     recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
@@ -148,7 +143,7 @@ if uploaded_file is not None:
         }
     )
 
-    # ---- График по источникам ----
+    # ---- ГРАФИК: по источникам (выбранный источник) ----
     st.subheader("📊 Кол-во направленных кандидатов по источникам")
     available_sources = sorted(df_filtered['Источник ОМПП'].unique())
     if not available_sources:
@@ -211,7 +206,7 @@ if uploaded_file is not None:
             }
         )
 
-    # ---- Приглашенные по проектам ----
+    # ---- ПРИГЛАШЕННЫЕ ПО ПРОЕКТАМ ----
     if 'Желаемые проекты (Группа)' in df_filtered.columns:
         st.subheader("📊 Приглашенные по проектам")
         df_projects = df_filtered.copy()
@@ -250,11 +245,11 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- Приглашенные по городам ----
+    # ---- ПРИГЛАШЕННЫЕ ПО ГОРОДАМ ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
 
-        # Если столбец "Город" вдруг стал DataFrame (из-за дубликатов), берём первый
+        # Защита от дублирования столбца "Город"
         city_series = df_filtered['Город']
         if isinstance(city_series, pd.DataFrame):
             city_series = city_series.iloc[:, 0]
@@ -284,7 +279,7 @@ if uploaded_file is not None:
                 }
             )
 
-            # Диаграмма по городам
+            # Столбчатая диаграмма по городам
             fig_city = px.bar(
                 city_counts,
                 x='Кол-во',
