@@ -237,12 +237,12 @@ if uploaded_file_responses is not None:
 
 # ---- Обработка файла звонков Mango-Office (CSV) ----
 if uploaded_file_calls is not None:
-    # Пробуем разные кодировки
+    # Пробуем разные кодировки, заголовок на второй строке (индекс 1)
     encodings = ['utf-8-sig', 'cp1251', 'latin1', 'utf-8']
     df_calls = None
     for enc in encodings:
         try:
-            df_calls = pd.read_csv(uploaded_file_calls, sep=';', decimal=',', quotechar='"', encoding=enc)
+            df_calls = pd.read_csv(uploaded_file_calls, sep=';', decimal=',', quotechar='"', encoding=enc, header=1)
             # Если чтение прошло успешно, выходим из цикла
             break
         except UnicodeDecodeError:
