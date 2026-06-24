@@ -392,31 +392,25 @@ if df_responses is not None:
         all_recruiters.update(df_responses[col_recr_resp].dropna().unique())
 all_recruiters = sorted(all_recruiters)
 
-# Инициализация состояния для выбора рекрутеров
-if 'selected_recruiters_state' not in st.session_state:
-    # По умолчанию выбираем только тех, кто есть в списке default_recruiters и присутствует в данных
-    default_selected = [r for r in default_recruiters if r in all_recruiters]
-    # Если никого из списка нет, показываем всех (чтобы не было пустого экрана)
-    if not default_selected:
-        default_selected = all_recruiters
-    st.session_state.selected_recruiters_state = default_selected
-    st.session_state.previous_selection = default_selected
+# Рекрутеры по умолчанию
+default_selected = [
+    r for r in default_recruiters
+    if r in all_recruiters
+]
 
-# Кнопка для исключения уволенных рекрутеров
-if st.sidebar.button("Исключить уволенных рекрутеров"):
-    # Выбираем только тех, кто в списке default_recruiters
-    filtered = [r for r in default_recruiters if r in all_recruiters]
-    if filtered:
-        st.session_state.selected_recruiters_state = filtered
-        st.session_state.previous_selection = filtered
-    else:
-        # Если никого нет, оставляем текущий выбор
-        pass
+# Если набор рекрутеров изменился (например, загружен новый файл)
+current_recruiters = tuple(all_recruiters)
+
+if (
+    "last_recruiters" not in st.session_state
+    or st.session_state["last_recruiters"] != current_recruiters
+):
+    st.session_state["recruiter_filter_global"] = default_selected
+    st.session_state["last_recruiters"] = current_recruiters
 
 selected_recruiters = st.sidebar.multiselect(
     "Рекрутеры",
     options=all_recruiters,
-    default=st.session_state.selected_recruiters_state,
     key="recruiter_filter_global"
 )
 
