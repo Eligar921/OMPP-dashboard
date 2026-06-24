@@ -52,6 +52,7 @@ if uploaded_file is not None:
     col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
     col_project_first = find_column(['проект первой подтвержденной смены', 'проект первой подтвержденной'])
     col_city_first = find_column(['город первой подтвержденной смены за всю жизнь', 'город первой подтвержденной'])
+    col_date_first_shift = find_column(['дата первой подтвержденной смены за всю жизнь', 'дата первой подтвержденной'])
 
     # ---- Проверка ----
     if col_date_direction is None:
@@ -95,6 +96,8 @@ if uploaded_file is not None:
         rename_map[col_project_first] = 'Проект первой подтвержденной смены'
     if col_city_first is not None:
         rename_map[col_city_first] = 'Город первой подтвержденной смены за всю жизнь'
+    if col_date_first_shift is not None:
+        rename_map[col_date_first_shift] = 'Дата первой подтвержденной смены за всю жизнь'
 
     df = df.rename(columns=rename_map)
     df = df.loc[:, ~df.columns.duplicated()]
@@ -143,9 +146,21 @@ if uploaded_file is not None:
 
     df_filtered = df_filtered.reset_index(drop=True)
 
-    # ---- 1. Таблица рекрутеров ----
+    # ---- 1. Таблица рекрутеров (с добавленным столбцом "Вышло из приглашенных") ----
+    # Считаем количество приглашенных (уникальные телефоны)
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
+
+    # Считаем количество вышедших (уникальные телефоны, у которых есть дата первой подтвержденной смены)
+    if 'Дата первой подтвержденной смены за всю жизнь' in df_filtered.columns:
+        df_with_shift = df_filtered[df_filtered['Дата первой подтвержденной смены за всю жизнь'].notna()]
+        worked_counts = df_with_shift.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+        worked_counts.columns = ['Рекрутер', 'Вышло из приглашенных']
+        recruiter_counts = recruiter_counts.merge(worked_counts, on='Рекрутер', how='left').fillna(0)
+        recruiter_counts['Вышло из приглашенных'] = recruiter_counts['Вышло из приглашенных'].astype(int)
+    else:
+        recruiter_counts['Вышло из приглашенных'] = 0
+
     recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
 
     st.subheader("📋 Количество направленных кандидатов по рекрутерам")
@@ -154,7 +169,8 @@ if uploaded_file is not None:
         use_container_width=True,
         column_config={
             "Рекрутер": st.column_config.TextColumn("Рекрутер", width="medium"),
-            "Кол-во кандидатов": st.column_config.NumberColumn("Кол-во кандидатов", width="small")
+            "Кол-во кандидатов": st.column_config.NumberColumn("Кол-во кандидатов", width="small"),
+            "Вышло из приглашенных": st.column_config.NumberColumn("Вышло из приглашенных", width="small"),
         }
     )
 
@@ -261,7 +277,7 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- 4. Вышедшие по проектам (с добавлением кол-ва приглашенных и конверсии) ----
+    # ---- 4. Вышедшие по проектам (из приглашенных) ----
     # Определяем "вышедших" по статусу координатора или лида
     if 'Статус координатора' in df_filtered.columns:
         df_worked = df_filtered[df_filtered['Статус координатора'] == 'went_work']
@@ -326,9 +342,9 @@ if uploaded_file is not None:
     else:
         st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
 
-    # ---- 5. Приглашенные и вышедшие по городам (объединённый блок) ----
+    # ---- 5. Вышедшие по городам из приглашенных ----
     if 'Город' in df_filtered.columns:
-        st.subheader("🏙️ Вышедшие по городам из приглашенных")
+        st.subheader("✅ Вышедшие по городам из приглашенных")
 
         # Приглашенные: группировка по "Город"
         city_invited = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'].astype(str).str.strip() != '')].copy()
