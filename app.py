@@ -118,6 +118,9 @@ if uploaded_file is not None:
             (df_filtered['Дата направления'].dt.date <= end_date)
         ]
 
+    # Сброс индекса для избежания проблем с дублирующимися индексами
+    df_filtered = df_filtered.reset_index(drop=True)
+
     # ---- Таблица: количество кандидатов по рекрутерам (с ограничением ширины) ----
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
@@ -161,7 +164,12 @@ if uploaded_file is not None:
                 color_continuous_scale='Blues'
             )
             fig.update_traces(textposition='outside')
-            fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            fig.update_layout(
+                yaxis={'categoryorder': 'total ascending'},
+                showlegend=False,
+                height=500,
+                margin=dict(l=10, r=10, t=40, b=10)
+            )
             st.plotly_chart(fig, use_container_width=True)
 
         # ---- Детальная таблица: рекрутер → источник (кол-во, % от рекрутера, % от всех) ----
@@ -198,9 +206,7 @@ if uploaded_file is not None:
     # ---- НОВЫЙ БЛОК: Приглашенные по проектам ----
     if 'Желаемые проекты (Группа)' in df_filtered.columns:
         st.subheader("📊 Приглашенные по проектам")
-        # Создаём колонку "Проект" на основе группы, но если "Без группы" — берём клиентский проект
         df_projects = df_filtered.copy()
-        # Если "Желаемые проекты (Клиент)" нет, то просто используем группу
         if 'Желаемые проекты (Клиент)' in df_projects.columns:
             df_projects['Проект'] = df_projects.apply(
                 lambda row: row['Желаемые проекты (Клиент)'] if row['Желаемые проекты (Группа)'] == 'Без группы' else row['Желаемые проекты (Группа)'],
@@ -209,15 +215,13 @@ if uploaded_file is not None:
         else:
             df_projects['Проект'] = df_projects['Желаемые проекты (Группа)']
 
-        # Удаляем пустые проекты
         df_projects = df_projects[df_projects['Проект'].notna() & (df_projects['Проект'] != '')]
 
-        # Группируем по проекту, считаем уникальные телефоны
-        project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
-        project_counts.columns = ['Проект', 'Кол-во']
-        project_counts = project_counts.sort_values('Кол-во', ascending=False)
+        if not df_projects.empty:
+            project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
+            project_counts.columns = ['Проект', 'Кол-во']
+            project_counts = project_counts.sort_values('Кол-во', ascending=False)
 
-        if not project_counts.empty:
             fig_proj = px.bar(
                 project_counts,
                 x='Кол-во',
@@ -230,7 +234,12 @@ if uploaded_file is not None:
                 color_continuous_scale='Teal'
             )
             fig_proj.update_traces(textposition='outside')
-            fig_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            fig_proj.update_layout(
+                yaxis={'categoryorder': 'total ascending'},
+                showlegend=False,
+                height=600,  # Увеличиваем высоту для читаемости
+                margin=dict(l=10, r=10, t=40, b=10)
+            )
             st.plotly_chart(fig_proj, use_container_width=True)
         else:
             st.info("Нет данных по проектам.")
@@ -240,7 +249,9 @@ if uploaded_file is not None:
     # ---- НОВЫЙ БЛОК: Приглашенные по городам ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
-        city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'] != '')]
+        # Используем .loc для корректной фильтрации
+        city_mask = df_filtered['Город'].notna() & (df_filtered['Город'] != '')
+        city_data = df_filtered.loc[city_mask].copy()
         if not city_data.empty:
             city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
             city_counts.columns = ['Город', 'Кол-во']
