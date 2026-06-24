@@ -28,7 +28,6 @@ if uploaded_file is not None:
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
     col_source = find_column(['источник омпп', 'источник'])
-    # Ищем точное совпадение для даты последнего звонка до первого статуса
     col_last_call = find_column(
         ['последнего звонка до первого статуса', 'последнего звонка', 'последний звонок'],
         exact_match='Дата последнего звонка до первого статуса первой смены'
@@ -65,7 +64,7 @@ if uploaded_file is not None:
         col_phone: 'Телефон',
         col_recruiter: 'Рекрутер',
         col_source: 'Источник ОМПП',
-        col_last_call: 'Дата последнего звонка',  # теперь это точно нужный столбец
+        col_last_call: 'Дата последнего звонка',
     }
     if col_coord_status is not None:
         rename_map[col_coord_status] = 'Статус координатора'
@@ -88,32 +87,17 @@ if uploaded_file is not None:
     # ---- Исключаем пустые источники ----
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
-    # ---- АВТОФИЛЬТР: дата звонка в текущем или предыдущем месяце ----
+    # ---- ФИЛЬТР ПО ДАТЕ ПОСЛЕДНЕГО ЗВОНКА (применяется до всех остальных фильтров) ----
     year_dir = df['Дата направления'].dt.year
     month_dir = df['Дата направления'].dt.month
-
-    prev_date = df['Дата направления'] - pd.DateOffset(months=1)
-    prev_year = prev_date.dt.year
-    prev_month = prev_date.dt.month
-
     year_call = df['Дата последнего звонка'].dt.year
     month_call = df['Дата последнего звонка'].dt.month
 
-    same_month = (
-        (year_call == year_dir) &
-        (month_call == month_dir)
-    )
+    same_month = (year_call == year_dir) & (month_call == month_dir)
+    prev_month = (year_call == year_dir) & (month_call == month_dir - 1)
+    prev_month_jan = (year_call == year_dir - 1) & (month_dir == 1) & (month_call == 12)
 
-    previous_month = (
-        (year_call == prev_year) &
-        (month_call == prev_month)
-    )
-
-    mask_call = (
-        (same_month | previous_month) &
-        df['Дата последнего звонка'].notna()
-    )
-
+    mask_call = (same_month | prev_month | prev_month_jan) & df['Дата последнего звонка'].notna()
     df = df[mask_call]
 
     # ---- Боковая панель фильтров ----
@@ -154,7 +138,7 @@ if uploaded_file is not None:
         }
     )
 
-    # ---- ГРАФИК: по источникам (выбранный источник) ----
+    # ---- ГРАФИК ПО ИСТОЧНИКАМ ----
     st.subheader("📊 Кол-во направленных кандидатов по источникам")
     available_sources = sorted(df_filtered['Источник ОМПП'].unique())
     if not available_sources:
@@ -274,8 +258,7 @@ if uploaded_file is not None:
         ]
 
         if not city_data.empty:
-            # Вместо size() используем nunique() по телефону
-            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index(name='Кол-во')
+            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
             city_counts.columns = ['Город', 'Кол-во']
             total_candidates = df_filtered['Телефон'].nunique()
             city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
