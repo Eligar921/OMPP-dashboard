@@ -20,7 +20,7 @@ if uploaded_file is not None:
                     return col
         return None
 
-    # Поиск необходимых столбцов
+    # Поиск всех необходимых столбцов
     col_date_direction = find_column(['дата направления', 'направления на координатора'])
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
@@ -28,7 +28,11 @@ if uploaded_file is not None:
     col_last_call = find_column(['последнего звонка', 'последний звонок'])
     col_coord_status = find_column(['статус координатора', 'статус координатор'])
     col_lead_status = find_column(['статус лида'])
+    col_city = find_column(['город'])
+    col_project_group = find_column(['желаемые проекты (группа)', 'группа'])
+    col_project_client = find_column(['желаемые проекты (клиент)', 'клиент'])
 
+    # Проверка наличия обязательных столбцов
     if col_date_direction is None:
         st.error("❌ Не найден столбец с датой направления. Доступные столбцы: " + ", ".join(df.columns))
         st.stop()
@@ -47,6 +51,10 @@ if uploaded_file is not None:
     if col_coord_status is None and col_lead_status is None:
         st.error("❌ Не найден ни столбец 'Статус координатора', ни 'Статус лида'")
         st.stop()
+    if col_city is None:
+        st.warning("⚠️ Столбец 'Город' не найден. Таблица по городам будет пропущена.")
+    if col_project_group is None:
+        st.warning("⚠️ Столбец 'Желаемые проекты (Группа)' не найден. Диаграмма проектов будет пропущена.")
 
     # Переименование
     rename_map = {
@@ -60,6 +68,13 @@ if uploaded_file is not None:
         rename_map[col_coord_status] = 'Статус координатора'
     if col_lead_status is not None:
         rename_map[col_lead_status] = 'Статус лида'
+    if col_city is not None:
+        rename_map[col_city] = 'Город'
+    if col_project_group is not None:
+        rename_map[col_project_group] = 'Желаемые проекты (Группа)'
+    if col_project_client is not None:
+        rename_map[col_project_client] = 'Желаемые проекты (Клиент)'
+
     df = df.rename(columns=rename_map)
 
     # Преобразование дат
@@ -151,30 +166,23 @@ if uploaded_file is not None:
 
         # ---- Детальная таблица: рекрутер → источник (кол-во, % от рекрутера, % от всех) ----
         st.subheader("📋 Детальная разбивка по источникам для каждого рекрутера")
-        # Считаем общее количество уникальных телефонов по каждому рекрутеру и источнику
         detail = df_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон'].nunique().reset_index()
         detail.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
 
-        # Общее количество по каждому рекрутеру (сумма по всем источникам)
         recruiter_total = detail.groupby('Рекрутер')['Кол-во'].sum().reset_index()
         recruiter_total.columns = ['Рекрутер', 'Всего_рекрутер']
 
-        # Общее количество по всем рекрутерам
         grand_total = detail['Кол-во'].sum()
 
-        # Сливаем с общими итогами
         detail = detail.merge(recruiter_total, on='Рекрутер', how='left')
         detail['% от рекрутера'] = (detail['Кол-во'] / detail['Всего_рекрутер'] * 100).round(1)
         detail['% от всех'] = (detail['Кол-во'] / grand_total * 100).round(1)
 
-        # Форматируем проценты как строки с %
         detail['% от рекрутера'] = detail['% от рекрутера'].astype(str) + '%'
         detail['% от всех'] = detail['% от всех'].astype(str) + '%'
 
-        # Сортируем по рекрутеру и количеству (по убыванию)
         detail = detail.sort_values(['Рекрутер', 'Кол-во'], ascending=[True, False])
 
-        # Отображаем таблицу
         st.dataframe(
             detail[['Рекрутер', 'Источник ОМПП', 'Кол-во', '% от рекрутера', '% от всех']],
             use_container_width=True,
@@ -186,6 +194,74 @@ if uploaded_file is not None:
                 "% от всех": st.column_config.TextColumn("% от всех"),
             }
         )
+
+    # ---- НОВЫЙ БЛОК: Приглашенные по проектам ----
+    if 'Желаемые проекты (Группа)' in df_filtered.columns:
+        st.subheader("📊 Приглашенные по проектам")
+        # Создаём колонку "Проект" на основе группы, но если "Без группы" — берём клиентский проект
+        df_projects = df_filtered.copy()
+        # Если "Желаемые проекты (Клиент)" нет, то просто используем группу
+        if 'Желаемые проекты (Клиент)' in df_projects.columns:
+            df_projects['Проект'] = df_projects.apply(
+                lambda row: row['Желаемые проекты (Клиент)'] if row['Желаемые проекты (Группа)'] == 'Без группы' else row['Желаемые проекты (Группа)'],
+                axis=1
+            )
+        else:
+            df_projects['Проект'] = df_projects['Желаемые проекты (Группа)']
+
+        # Удаляем пустые проекты
+        df_projects = df_projects[df_projects['Проект'].notna() & (df_projects['Проект'] != '')]
+
+        # Группируем по проекту, считаем уникальные телефоны
+        project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
+        project_counts.columns = ['Проект', 'Кол-во']
+        project_counts = project_counts.sort_values('Кол-во', ascending=False)
+
+        if not project_counts.empty:
+            fig_proj = px.bar(
+                project_counts,
+                x='Кол-во',
+                y='Проект',
+                orientation='h',
+                title="Количество направленных кандидатов по проектам",
+                labels={'Кол-во': 'Кол-во кандидатов', 'Проект': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Teal'
+            )
+            fig_proj.update_traces(textposition='outside')
+            fig_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_proj, use_container_width=True)
+        else:
+            st.info("Нет данных по проектам.")
+    else:
+        st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
+
+    # ---- НОВЫЙ БЛОК: Приглашенные по городам ----
+    if 'Город' in df_filtered.columns:
+        st.subheader("🏙️ Приглашенные по городам")
+        city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'] != '')]
+        if not city_data.empty:
+            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
+            city_counts.columns = ['Город', 'Кол-во']
+            total_candidates = df_filtered['Телефон'].nunique()
+            city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1)
+            city_counts['% от всех'] = city_counts['% от всех'].astype(str) + '%'
+            city_counts = city_counts.sort_values('Кол-во', ascending=False)
+
+            st.dataframe(
+                city_counts,
+                use_container_width=True,
+                column_config={
+                    "Город": "Город",
+                    "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                    "% от всех": st.column_config.TextColumn("% от всех"),
+                }
+            )
+        else:
+            st.info("Нет данных по городам.")
+    else:
+        st.info("Столбец 'Город' не найден, таблица городов пропущена.")
 
     # ---- Статистика в сайдбаре ----
     st.sidebar.markdown("---")
