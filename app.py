@@ -978,7 +978,7 @@ def build_leaderboard(df_recruiters, stats_df, best_avg_duration_recruiter=None,
 # =============================================================================
 lb = build_leaderboard(df_recruiters, stats_df, best_avg_duration_recruiter, best_avg_duration_value)
 if not lb.empty:
-    st.markdown("<h2 style='text-align: center;'>🏆 Лидерборд</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='text-align: center; margin-bottom: 1.5rem;'>🏆 Лидерборд</h2>", unsafe_allow_html=True)
     # Разбиваем на группы по 3 (первые 3 – отклики/конверсии, следующие 3 – звонки)
     for i in range(0, len(lb), 3):
         cols = st.columns(3)
