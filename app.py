@@ -20,6 +20,7 @@ if uploaded_file is not None:
                     return col
         return None
 
+    # Поиск необходимых столбцов
     col_date_direction = find_column(['дата направления', 'направления на координатора'])
     col_phone = find_column(['телефон'])
     col_recruiter = find_column(['рекрутер'])
@@ -43,7 +44,11 @@ if uploaded_file is not None:
     if col_last_call is None:
         st.error("❌ Не найден столбец с датой последнего звонка")
         st.stop()
+    if col_coord_status is None and col_lead_status is None:
+        st.error("❌ Не найден ни столбец 'Статус координатора', ни 'Статус лида'")
+        st.stop()
 
+    # Переименование
     rename_map = {
         col_date_direction: 'Дата направления',
         col_phone: 'Телефон',
@@ -55,16 +60,16 @@ if uploaded_file is not None:
         rename_map[col_coord_status] = 'Статус координатора'
     if col_lead_status is not None:
         rename_map[col_lead_status] = 'Статус лида'
-
     df = df.rename(columns=rename_map)
 
+    # Преобразование дат
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
-    # Удаляем пустые источники
+    # Исключаем пустые источники
     df = df[df['Источник ОМПП'].notna() & (df['Источник ОМПП'] != '')]
 
-    # ---- Автофильтр по дате звонка (текущий/предыдущий месяц) ----
+    # ---- Автофильтр: дата звонка в том же или предыдущем месяце ----
     df['год_напр'] = df['Дата направления'].dt.year
     df['мес_напр'] = df['Дата направления'].dt.month
     df['год_зв'] = df['Дата последнего звонка'].dt.year
@@ -79,12 +84,10 @@ if uploaded_file is not None:
 
     # ---- Боковая панель ----
     st.sidebar.header("Фильтры")
-
     sources = sorted(df['Источник ОМПП'].unique())
     selected_sources = st.sidebar.multiselect("Источник ОМПП", options=sources, default=sources)
     df_filtered = df[df['Источник ОМПП'].isin(selected_sources)]
 
-    # Диапазон дат направления
     min_date = df_filtered['Дата направления'].min().date()
     max_date = df_filtered['Дата направления'].max().date()
     date_range = st.sidebar.date_input(
@@ -100,75 +103,95 @@ if uploaded_file is not None:
             (df_filtered['Дата направления'].dt.date <= end_date)
         ]
 
-    # ---- Таблица: количество направленных по рекрутерам (с ограничением ширины) ----
+    # ---- Таблица: количество кандидатов по рекрутерам (с ограничением ширины) ----
     recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
     recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
     recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
 
     st.subheader("📋 Количество направленных кандидатов по рекрутерам")
-
-    # Ограничиваем ширину колонок: задаём максимальную ширину в пикселях
     st.dataframe(
         recruiter_counts,
         use_container_width=True,
         column_config={
-            "Рекрутер": st.column_config.TextColumn(
-                "Рекрутер",
-                width="medium",  # можно small, medium, large
-                help="ФИО рекрутера"
-            ),
-            "Кол-во кандидатов": st.column_config.NumberColumn(
-                "Кол-во кандидатов",
-                width="small",
-                help="Количество уникальных телефонов"
-            )
+            "Рекрутер": st.column_config.TextColumn("Рекрутер", width="medium"),  # ограничиваем ширину
+            "Кол-во кандидатов": st.column_config.NumberColumn("Кол-во кандидатов", width="small")
         }
     )
 
-    # ---- График: горизонтальная столбчатая диаграмма по выбранному источнику ----
-    st.subheader("📊 Количество направленных кандидатов по источникам")
-
-    # Выбор источника (если доступны источники)
+    # ---- График: количество направленных по источникам (горизонтальная столбчатая) ----
+    st.subheader("📊 Кол-во направленных кандидатов по источникам")
+    # Выбор источника для отображения (из числа выбранных в фильтре)
     available_sources = sorted(df_filtered['Источник ОМПП'].unique())
-    if len(available_sources) == 0:
-        st.warning("Нет данных для отображения графика.")
+    if not available_sources:
+        st.warning("Нет доступных источников для отображения.")
     else:
-        # Пользователь выбирает один источник для отображения
-        selected_source = st.selectbox("Выберите источник для отображения на графике", options=available_sources)
+        selected_source_for_chart = st.selectbox("Выберите источник для отображения:", options=available_sources)
 
-        # Фильтруем данные по выбранному источнику
-        df_source = df_filtered[df_filtered['Источник ОМПП'] == selected_source]
+        # Данные для выбранного источника
+        df_chart = df_filtered[df_filtered['Источник ОМПП'] == selected_source_for_chart]
+        chart_data = df_chart.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+        chart_data.columns = ['Рекрутер', 'Кол-во']
+        chart_data = chart_data.sort_values('Кол-во', ascending=False)
 
-        # Группируем по рекрутерам и считаем количество телефонов
-        source_counts = df_source.groupby('Рекрутер')['Телефон'].nunique().reset_index()
-        source_counts.columns = ['Рекрутер', 'Кол-во направленных']
-
-        # Если нет данных – покажем предупреждение
-        if source_counts.empty:
-            st.info(f"Нет направленных кандидатов по источнику '{selected_source}'")
+        if chart_data.empty:
+            st.info("Нет данных для выбранного источника.")
         else:
-            # Сортируем для наглядности
-            source_counts = source_counts.sort_values('Кол-во направленных', ascending=True)
-
-            # Горизонтальная столбчатая диаграмма
             fig = px.bar(
-                source_counts,
-                x='Кол-во направленных',
+                chart_data,
+                x='Кол-во',
                 y='Рекрутер',
                 orientation='h',
-                title=f"Количество направленных кандидатов по источнику: {selected_source}",
-                text='Кол-во направленных',  # отображаем значения на столбцах
-                color='Кол-во направленных',
+                title=f"Источник: {selected_source_for_chart}",
+                labels={'Кол-во': 'Кол-во направленных кандидатов', 'Рекрутер': ''},
+                text='Кол-во',
+                color='Кол-во',
                 color_continuous_scale='Blues'
             )
             fig.update_traces(textposition='outside')
-            fig.update_layout(
-                xaxis_title="Количество кандидатов",
-                yaxis_title="Рекрутер",
-                yaxis={'categoryorder': 'total ascending'},  # сортировка по убыванию сверху
-                height=600
-            )
+            fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
+
+    # ---- Доля рекрутеров по источникам ----
+    st.subheader("📈 Доля рекрутеров, направлявших кандидатов, в разрезе источников")
+    # Общее количество уникальных рекрутеров в отфильтрованном наборе
+    total_recruiters = df_filtered['Рекрутер'].nunique()
+
+    # Для каждого источника считаем число уникальных рекрутеров
+    source_recruiter_counts = df_filtered.groupby('Источник ОМПП')['Рекрутер'].nunique().reset_index()
+    source_recruiter_counts.columns = ['Источник ОМПП', 'Рекрутеров в источнике']
+    source_recruiter_counts['Общее число рекрутеров'] = total_recruiters
+    source_recruiter_counts['Доля (%)'] = (source_recruiter_counts['Рекрутеров в источнике'] / total_recruiters * 100).round(1)
+
+    # Отображаем как таблицу
+    st.dataframe(
+        source_recruiter_counts,
+        use_container_width=True,
+        column_config={
+            "Источник ОМПП": "Источник",
+            "Рекрутеров в источнике": "Рекрутеров",
+            "Общее число рекрутеров": "Всего рекрутеров",
+            "Доля (%)": st.column_config.NumberColumn("Доля (%)", format="%.1f%%")
+        }
+    )
+
+    # Визуализация долей (горизонтальная столбчатая)
+    if not source_recruiter_counts.empty:
+        fig_dol = px.bar(
+            source_recruiter_counts,
+            x='Доля (%)',
+            y='Источник ОМПП',
+            orientation='h',
+            title="Доля рекрутеров, участвовавших в каждом источнике",
+            labels={'Доля (%)': 'Доля рекрутеров (%)', 'Источник ОМПП': ''},
+            text='Доля (%)',
+            color='Доля (%)',
+            color_continuous_scale='Viridis'
+        )
+        fig_dol.update_traces(textposition='outside', texttemplate='%{text:.1f}%')
+        fig_dol.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+        st.plotly_chart(fig_dol, use_container_width=True)
+    else:
+        st.info("Нет данных для расчёта долей.")
 
     # ---- Статистика в сайдбаре ----
     st.sidebar.markdown("---")
