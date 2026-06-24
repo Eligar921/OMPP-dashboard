@@ -7,20 +7,29 @@ from datetime import datetime, date
 st.set_page_config(page_title="ОМПП Дашборд", layout="wide")
 st.title("📊 Дашборд ОМПП")
 
-# ---- Функция нормализации названий проектов ----
+# ---- Словарь алиасов для нормализации проектов ----
+PROJECT_ALIASES = {
+    'пятёрочка': 'Пятёрочка',
+    'пятерочка': 'Пятёрочка',
+    'пятёрочка агентская': 'Пятёрочка',
+    'магнит': 'Магнит',
+    'магнит косметик': 'Магнит',
+    'магнит сборка': 'Магнит',
+    'магнит ': 'Магнит',
+    'гулливер': 'Гулливер',
+    'ооо "таймбук"': 'Гулливер',
+}
+
 def normalize_project(project_name):
     if not isinstance(project_name, str):
         return project_name
-    project_name = project_name.strip()
-    if project_name == 'Пятёрочка агентская':
-        return 'Пятёрочка'
-    if project_name == 'Магнит Косметик':
-        return 'Магнит'
-    if project_name == 'ООО "Таймбук"':
-        return 'Гулливер'
-    if project_name == 'Магнит ':
-        return 'Магнит'
-    return project_name
+    # Удаляем лишние пробелы и приводим к нижнему регистру
+    cleaned = project_name.strip().lower()
+    # Проверяем по алиасам
+    if cleaned in PROJECT_ALIASES:
+        return PROJECT_ALIASES[cleaned]
+    # Если не найден, возвращаем с удалением пробелов по краям (сохраняя регистр)
+    return project_name.strip()
 
 # ---- Функция поиска столбца ----
 def find_column(df, keywords, exact_match=None):
@@ -414,250 +423,429 @@ selected_recruiters = st.sidebar.multiselect(
     key="recruiter_filter_global"
 )
 
-# ---- Применение фильтров к основному отчету ----
+# ---- Применение фильтров к основному отчету (с учётом рекрутеров и без) ----
+df_main_filtered_all = None
+df_main_filtered = None
 if df_main is not None and selected_sources:
-    df_main_filtered = df_main[df_main['Источник ОМПП'].isin(selected_sources)]
-
+    # Сначала фильтруем по источнику и датам (без рекрутеров)
+    df_main_temp = df_main[df_main['Источник ОМПП'].isin(selected_sources)]
+    
     if date_range_main and len(date_range_main) == 2:
         start_date, end_date = date_range_main
-        df_main_filtered = df_main_filtered[
-            (df_main_filtered['Дата направления'].dt.date >= start_date) &
-            (df_main_filtered['Дата направления'].dt.date <= end_date)
+        df_main_temp = df_main_temp[
+            (df_main_temp['Дата направления'].dt.date >= start_date) &
+            (df_main_temp['Дата направления'].dt.date <= end_date)
         ]
-
-    df_main_filtered['год_напр'] = df_main_filtered['Дата направления'].dt.year
-    df_main_filtered['мес_напр'] = df_main_filtered['Дата направления'].dt.month
-    df_main_filtered['год_зв'] = df_main_filtered['Дата последнего звонка'].dt.year
-    df_main_filtered['мес_зв'] = df_main_filtered['Дата последнего звонка'].dt.month
-
-    same_month = (df_main_filtered['год_зв'] == df_main_filtered['год_напр']) & (df_main_filtered['мес_зв'] == df_main_filtered['мес_напр'])
-    prev_month = (df_main_filtered['год_зв'] == df_main_filtered['год_напр']) & (df_main_filtered['мес_зв'] == df_main_filtered['мес_напр'] - 1)
-    prev_month_jan = (df_main_filtered['год_зв'] == df_main_filtered['год_напр'] - 1) & (df_main_filtered['мес_напр'] == 1) & (df_main_filtered['мес_зв'] == 12)
-
-    df_main_filtered['filter_last_call'] = same_month | prev_month | prev_month_jan
-    df_main_filtered = df_main_filtered[df_main_filtered['filter_last_call'] & df_main_filtered['Дата последнего звонка'].notna()]
-    df_main_filtered = df_main_filtered.reset_index(drop=True)
+    
+    df_main_temp['год_напр'] = df_main_temp['Дата направления'].dt.year
+    df_main_temp['мес_напр'] = df_main_temp['Дата направления'].dt.month
+    df_main_temp['год_зв'] = df_main_temp['Дата последнего звонка'].dt.year
+    df_main_temp['мес_зв'] = df_main_temp['Дата последнего звонка'].dt.month
+    
+    same_month = (df_main_temp['год_зв'] == df_main_temp['год_напр']) & (df_main_temp['мес_зв'] == df_main_temp['мес_напр'])
+    prev_month = (df_main_temp['год_зв'] == df_main_temp['год_напр']) & (df_main_temp['мес_зв'] == df_main_temp['мес_напр'] - 1)
+    prev_month_jan = (df_main_temp['год_зв'] == df_main_temp['год_напр'] - 1) & (df_main_temp['мес_напр'] == 1) & (df_main_temp['мес_зв'] == 12)
+    
+    df_main_temp['filter_last_call'] = same_month | prev_month | prev_month_jan
+    df_main_temp = df_main_temp[df_main_temp['filter_last_call'] & df_main_temp['Дата последнего звонка'].notna()]
+    df_main_temp = df_main_temp.reset_index(drop=True)
+    
+    # Сохраняем без фильтра по рекрутерам
+    df_main_filtered_all = df_main_temp.copy()
     
     # Применяем фильтр по рекрутерам
     if selected_recruiters:
-        df_main_filtered = df_main_filtered[df_main_filtered['Рекрутер'].isin(selected_recruiters)]
+        df_main_filtered = df_main_temp[df_main_temp['Рекрутер'].isin(selected_recruiters)]
+    else:
+        df_main_filtered = df_main_temp
 else:
     df_main_filtered = None
+    df_main_filtered_all = None
 
-# ---- Применение фильтров к KPI ----
+# ---- Применение фильтров к KPI (с учётом рекрутеров и без) ----
+df_kpi_filtered_all = None
+df_kpi_filtered = None
 if df_kpi is not None and selected_sources:
-    df_kpi_filtered = df_kpi[df_kpi['Источник ОМПП'].isin(selected_sources)]
-
+    df_kpi_temp = df_kpi[df_kpi['Источник ОМПП'].isin(selected_sources)]
+    
     if date_range_kpi and len(date_range_kpi) == 2:
         start_date_kpi, end_date_kpi = date_range_kpi
-        df_kpi_filtered = df_kpi_filtered[
-            (df_kpi_filtered['Дата первой смены'].dt.date >= start_date_kpi) &
-            (df_kpi_filtered['Дата первой смены'].dt.date <= end_date_kpi)
+        df_kpi_temp = df_kpi_temp[
+            (df_kpi_temp['Дата первой смены'].dt.date >= start_date_kpi) &
+            (df_kpi_temp['Дата первой смены'].dt.date <= end_date_kpi)
         ]
-
-    df_kpi_filtered['год_смены'] = df_kpi_filtered['Дата первой смены'].dt.year
-    df_kpi_filtered['мес_смены'] = df_kpi_filtered['Дата первой смены'].dt.month
-    df_kpi_filtered['год_зв'] = df_kpi_filtered['Дата последнего звонка'].dt.year
-    df_kpi_filtered['мес_зв'] = df_kpi_filtered['Дата последнего звонка'].dt.month
-
-    same_month_kpi = (df_kpi_filtered['год_зв'] == df_kpi_filtered['год_смены']) & (df_kpi_filtered['мес_зв'] == df_kpi_filtered['мес_смены'])
-    prev_month_kpi = (df_kpi_filtered['год_зв'] == df_kpi_filtered['год_смены']) & (df_kpi_filtered['мес_зв'] == df_kpi_filtered['мес_смены'] - 1)
-    prev_month_jan_kpi = (df_kpi_filtered['год_зв'] == df_kpi_filtered['год_смены'] - 1) & (df_kpi_filtered['мес_смены'] == 1) & (df_kpi_filtered['мес_зв'] == 12)
-
-    df_kpi_filtered['filter_last_call'] = same_month_kpi | prev_month_kpi | prev_month_jan_kpi
-    df_kpi_filtered = df_kpi_filtered[df_kpi_filtered['filter_last_call'] & df_kpi_filtered['Дата последнего звонка'].notna()]
-    df_kpi_filtered = df_kpi_filtered.reset_index(drop=True)
     
-    # Применяем фильтр по рекрутерам
+    df_kpi_temp['год_смены'] = df_kpi_temp['Дата первой смены'].dt.year
+    df_kpi_temp['мес_смены'] = df_kpi_temp['Дата первой смены'].dt.month
+    df_kpi_temp['год_зв'] = df_kpi_temp['Дата последнего звонка'].dt.year
+    df_kpi_temp['мес_зв'] = df_kpi_temp['Дата последнего звонка'].dt.month
+    
+    same_month_kpi = (df_kpi_temp['год_зв'] == df_kpi_temp['год_смены']) & (df_kpi_temp['мес_зв'] == df_kpi_temp['мес_смены'])
+    prev_month_kpi = (df_kpi_temp['год_зв'] == df_kpi_temp['год_смены']) & (df_kpi_temp['мес_зв'] == df_kpi_temp['мес_смены'] - 1)
+    prev_month_jan_kpi = (df_kpi_temp['год_зв'] == df_kpi_temp['год_смены'] - 1) & (df_kpi_temp['мес_смены'] == 1) & (df_kpi_temp['мес_зв'] == 12)
+    
+    df_kpi_temp['filter_last_call'] = same_month_kpi | prev_month_kpi | prev_month_jan_kpi
+    df_kpi_temp = df_kpi_temp[df_kpi_temp['filter_last_call'] & df_kpi_temp['Дата последнего звонка'].notna()]
+    df_kpi_temp = df_kpi_temp.reset_index(drop=True)
+    
+    df_kpi_filtered_all = df_kpi_temp.copy()
+    
     if selected_recruiters:
-        df_kpi_filtered = df_kpi_filtered[df_kpi_filtered['Рекрутер'].isin(selected_recruiters)]
+        df_kpi_filtered = df_kpi_temp[df_kpi_temp['Рекрутер'].isin(selected_recruiters)]
+    else:
+        df_kpi_filtered = df_kpi_temp
 else:
     df_kpi_filtered = None
+    df_kpi_filtered_all = None
 
-# ---- Применение фильтров к откликам ----
+# ---- Применение фильтров к откликам (с учётом рекрутеров и без) ----
+df_responses_filtered_all = None
 df_responses_filtered = None
 if df_responses is not None:
-    df_responses_filtered = df_responses.copy()
-    # Фильтр по дате отклика
-    if date_range_resp and len(date_range_resp) == 2 and 'Дата отклика' in df_responses_filtered.columns:
+    df_responses_temp = df_responses.copy()
+    if date_range_resp and len(date_range_resp) == 2 and 'Дата отклика' in df_responses_temp.columns:
         start_date_resp, end_date_resp = date_range_resp
-        df_responses_filtered = df_responses_filtered[
-            (df_responses_filtered['Дата отклика'].dt.date >= start_date_resp) &
-            (df_responses_filtered['Дата отклика'].dt.date <= end_date_resp)
+        df_responses_temp = df_responses_temp[
+            (df_responses_temp['Дата отклика'].dt.date >= start_date_resp) &
+            (df_responses_temp['Дата отклика'].dt.date <= end_date_resp)
         ]
-    # Фильтр по рекрутерам
+    
+    df_responses_filtered_all = df_responses_temp.copy()
+    
     if selected_recruiters:
-        col_recr_resp = find_column(df_responses_filtered, ['рекрутер в crm', 'рекрутер в срм'])
+        col_recr_resp = find_column(df_responses_temp, ['рекрутер в crm', 'рекрутер в срм'])
         if col_recr_resp is not None:
-            df_responses_filtered = df_responses_filtered[df_responses_filtered[col_recr_resp].isin(selected_recruiters)]
+            df_responses_filtered = df_responses_temp[df_responses_temp[col_recr_resp].isin(selected_recruiters)]
+        else:
+            df_responses_filtered = df_responses_temp
+    else:
+        df_responses_filtered = df_responses_temp
 
 # ---- Обработка откликов: таблица (будет выведена в конце) ----
 merged_resp = None
+merged_resp_all = None
 df_resp_for_city = None  # для статистики по городам
-if df_responses_filtered is not None:
-    col_phone_resp = find_column(df_responses_filtered, ['телефон соискателя'])
-    col_recruiter_resp = find_column(df_responses_filtered, ['рекрутер в crm', 'рекрутер в срм'])
-    col_status_resp = find_column(df_responses_filtered, ['статус рекрутера'])
-    col_first_shift_resp = find_column(df_responses_filtered, ['первая смена после отклика'])
-    col_city_vacancy = find_column(df_responses_filtered, ['город вакансии'])
+
+def compute_responses_table(df_resp_filtered):
+    if df_resp_filtered is None:
+        return None
+    col_phone_resp = find_column(df_resp_filtered, ['телефон соискателя'])
+    col_recruiter_resp = find_column(df_resp_filtered, ['рекрутер в crm', 'рекрутер в срм'])
+    col_status_resp = find_column(df_resp_filtered, ['статус рекрутера'])
+    col_first_shift_resp = find_column(df_resp_filtered, ['первая смена после отклика'])
+    col_city_vacancy = find_column(df_resp_filtered, ['город вакансии'])
 
     if col_phone_resp is None or col_recruiter_resp is None:
-        st.error("❌ В листе 'Отклики общая' не найдены столбцы 'Телефон соискателя' и/или 'Рекрутер в CRM'")
+        return None
+
+    rename_resp = {
+        col_phone_resp: 'Телефон',
+        col_recruiter_resp: 'Рекрутер'
+    }
+    if col_status_resp is not None:
+        rename_resp[col_status_resp] = 'Статус'
+    if col_first_shift_resp is not None:
+        rename_resp[col_first_shift_resp] = 'Первая смена'
+    if col_city_vacancy is not None:
+        rename_resp[col_city_vacancy] = 'Город вакансии'
+
+    df_resp = df_resp_filtered.rename(columns=rename_resp)
+    df_resp = df_resp.loc[:, ~df_resp.columns.duplicated()]
+
+    responses_count = df_resp.groupby('Рекрутер').size().reset_index(name='Кол-во откликов')
+
+    if 'Статус' in df_resp.columns:
+        reg_statuses = ['Регистрация', 'Приглашен на смену', 'Смена забронирована']
+        df_reg = df_resp[df_resp['Статус'].isin(reg_statuses)]
+        reg_count = df_reg.groupby('Рекрутер').size().reset_index(name='Кол-во регистраций')
     else:
-        rename_resp = {
-            col_phone_resp: 'Телефон',
-            col_recruiter_resp: 'Рекрутер'
-        }
-        if col_status_resp is not None:
-            rename_resp[col_status_resp] = 'Статус'
-        if col_first_shift_resp is not None:
-            rename_resp[col_first_shift_resp] = 'Первая смена'
-        if col_city_vacancy is not None:
-            rename_resp[col_city_vacancy] = 'Город вакансии'
+        reg_count = pd.DataFrame(columns=['Рекрутер', 'Кол-во регистраций'])
 
-        df_resp = df_responses_filtered.rename(columns=rename_resp)
-        df_resp = df_resp.loc[:, ~df_resp.columns.duplicated()]
+    if 'Статус' in df_resp.columns:
+        invited_statuses = ['Приглашен на смену', 'Смена забронирована']
+        df_inv = df_resp[df_resp['Статус'].isin(invited_statuses)]
+        invited_count = df_inv.groupby('Рекрутер').size().reset_index(name='Кол-во направленных из откликов')
+    else:
+        invited_count = pd.DataFrame(columns=['Рекрутер', 'Кол-во направленных из откликов'])
 
-        # Сохраняем для города
-        df_resp_for_city = df_resp.copy()
+    if 'Первая смена' in df_resp.columns:
+        df_worked_resp = df_resp[df_resp['Первая смена'].notna()]
+        worked_count = df_worked_resp.groupby('Рекрутер').size().reset_index(name='Вышедшие из откликов')
+    else:
+        worked_count = pd.DataFrame(columns=['Рекрутер', 'Вышедшие из откликов'])
 
-        # Группировка для таблицы обработки откликов
-        responses_count = df_resp.groupby('Рекрутер').size().reset_index(name='Кол-во откликов')
+    merged = responses_count.merge(reg_count, on='Рекрутер', how='left').fillna(0)
+    merged = merged.merge(invited_count, on='Рекрутер', how='left').fillna(0)
+    merged = merged.merge(worked_count, on='Рекрутер', how='left').fillna(0)
 
-        if 'Статус' in df_resp.columns:
-            reg_statuses = ['Регистрация', 'Приглашен на смену', 'Смена забронирована']
-            df_reg = df_resp[df_resp['Статус'].isin(reg_statuses)]
-            reg_count = df_reg.groupby('Рекрутер').size().reset_index(name='Кол-во регистраций')
-        else:
-            reg_count = pd.DataFrame(columns=['Рекрутер', 'Кол-во регистраций'])
+    for col in ['Кол-во откликов', 'Кол-во регистраций', 'Кол-во направленных из откликов', 'Вышедшие из откликов']:
+        merged[col] = merged[col].astype(int)
 
-        if 'Статус' in df_resp.columns:
-            invited_statuses = ['Приглашен на смену', 'Смена забронирована']
-            df_inv = df_resp[df_resp['Статус'].isin(invited_statuses)]
-            invited_count = df_inv.groupby('Рекрутер').size().reset_index(name='Кол-во направленных из откликов')
-        else:
-            invited_count = pd.DataFrame(columns=['Рекрутер', 'Кол-во направленных из откликов'])
+    merged['Конв. отклик->регистр, %'] = (merged['Кол-во регистраций'] / merged['Кол-во откликов'] * 100).round(1)
+    merged['Конв. регистр->направл, %'] = (merged['Кол-во направленных из откликов'] / merged['Кол-во регистраций'] * 100).round(1).fillna(0)
+    merged['Конв. направл->вышед, %'] = (merged['Вышедшие из откликов'] / merged['Кол-во направленных из откликов'] * 100).round(1).fillna(0)
+    merged['Конв. отклик->вышед, %'] = (merged['Вышедшие из откликов'] / merged['Кол-во откликов'] * 100).round(1)
 
-        if 'Первая смена' in df_resp.columns:
-            df_worked_resp = df_resp[df_resp['Первая смена'].notna()]
-            worked_count = df_worked_resp.groupby('Рекрутер').size().reset_index(name='Вышедшие из откликов')
-        else:
-            worked_count = pd.DataFrame(columns=['Рекрутер', 'Вышедшие из откликов'])
+    for col in ['Конв. отклик->регистр, %', 'Конв. регистр->направл, %', 'Конв. направл->вышед, %', 'Конв. отклик->вышед, %']:
+        merged[col] = merged[col].fillna(0).replace([float('inf'), -float('inf')], 0)
+        merged[col] = merged[col].astype(str) + '%'
 
-        merged_resp = responses_count.merge(reg_count, on='Рекрутер', how='left').fillna(0)
-        merged_resp = merged_resp.merge(invited_count, on='Рекрутер', how='left').fillna(0)
-        merged_resp = merged_resp.merge(worked_count, on='Рекрутер', how='left').fillna(0)
+    return merged
 
-        for col in ['Кол-во откликов', 'Кол-во регистраций', 'Кол-во направленных из откликов', 'Вышедшие из откликов']:
-            merged_resp[col] = merged_resp[col].astype(int)
+if df_responses_filtered is not None:
+    merged_resp = compute_responses_table(df_responses_filtered)
+    # Сохраняем для города (используем фильтрованный по рекрутерам)
+    if merged_resp is not None:
+        col_phone_resp = find_column(df_responses_filtered, ['телефон соискателя'])
+        col_city_vacancy = find_column(df_responses_filtered, ['город вакансии'])
+        if col_phone_resp is not None and col_city_vacancy is not None:
+            df_resp_for_city = df_responses_filtered.copy()
+            df_resp_for_city['Телефон'] = df_resp_for_city[col_phone_resp]
+            df_resp_for_city['Город вакансии'] = df_resp_for_city[col_city_vacancy]
 
-        # Конверсии
-        merged_resp['Конв. отклик->регистр, %'] = (merged_resp['Кол-во регистраций'] / merged_resp['Кол-во откликов'] * 100).round(1)
-        merged_resp['Конв. регистр->направл, %'] = (merged_resp['Кол-во направленных из откликов'] / merged_resp['Кол-во регистраций'] * 100).round(1).fillna(0)
-        merged_resp['Конв. направл->вышед, %'] = (merged_resp['Вышедшие из откликов'] / merged_resp['Кол-во направленных из откликов'] * 100).round(1).fillna(0)
-        merged_resp['Конв. отклик->вышед, %'] = (merged_resp['Вышедшие из откликов'] / merged_resp['Кол-во откликов'] * 100).round(1)
+if df_responses_filtered_all is not None:
+    merged_resp_all = compute_responses_table(df_responses_filtered_all)
 
-        for col in ['Конв. отклик->регистр, %', 'Конв. регистр->направл, %', 'Конв. направл->вышед, %', 'Конв. отклик->вышед, %']:
-            merged_resp[col] = merged_resp[col].fillna(0).replace([float('inf'), -float('inf')], 0)
-            merged_resp[col] = merged_resp[col].astype(str) + '%'
+# ---- Функция для построения LeaderBoard ----
+def build_leaderboard(df_recruiters):
+    if df_recruiters is None or df_recruiters.empty:
+        return None
+    
+    # Создаем копию и преобразуем конверсии в числа
+    df_lead = df_recruiters.copy()
+    
+    # Преобразуем процентные строки в числа
+    for col in ['Конверсия из откликов в вышедших, %', 'Конверсия из пригл. в вышедших из приглашенных, %']:
+        if col in df_lead.columns:
+            df_lead[col + '_num'] = df_lead[col].str.replace('%', '').astype(float)
+    
+    # Топ-1 по конверсии из отклика в вышедшего (с дошедшими)
+    top_conv_resp_worked = df_lead.nlargest(1, 'Конверсия из откликов в вышедших, %_num') if 'Конверсия из откликов в вышедших, %_num' in df_lead.columns else pd.DataFrame()
+    
+    # Топ-1 по конверсии из приглашенного в вышедшего (из приглашенных)
+    top_conv_inv_worked = df_lead.nlargest(1, 'Конверсия из пригл. в вышедших из приглашенных, %_num') if 'Конверсия из пригл. в вышедших из приглашенных, %_num' in df_lead.columns else pd.DataFrame()
+    
+    # Топ-1 по количеству обработанных откликов
+    top_responses = df_lead.nlargest(1, 'Кол-во откликов') if 'Кол-во откликов' in df_lead.columns else pd.DataFrame()
+    
+    return top_conv_resp_worked, top_conv_inv_worked, top_responses
 
-        merged_resp = merged_resp.sort_values('Кол-во откликов', ascending=False)
+# ---- 0. LeaderBoard (самая первая таблица) ----
+st.subheader("🏆 LeaderBoard")
+lb_data = build_leaderboard(df_recruiters)
+
+if lb_data is not None:
+    top_conv_resp_worked, top_conv_inv_worked, top_responses = lb_data
+    
+    # Создаем DataFrame для отображения
+    lb_rows = []
+    
+    if not top_conv_resp_worked.empty:
+        lb_rows.append({
+            'Категория': 'Лучшая конверсия из отклика в вышедшего (с дошедшими)',
+            'Рекрутер': top_conv_resp_worked.iloc[0]['Рекрутер'],
+            'Показатель': top_conv_resp_worked.iloc[0]['Конверсия из откликов в вышедших, %']
+        })
+    else:
+        lb_rows.append({
+            'Категория': 'Лучшая конверсия из отклика в вышедшего (с дошедшими)',
+            'Рекрутер': 'Нет данных',
+            'Показатель': '—'
+        })
+    
+    if not top_conv_inv_worked.empty:
+        lb_rows.append({
+            'Категория': 'Лучшая конверсия из приглашенного в вышедшего (из приглашенных)',
+            'Рекрутер': top_conv_inv_worked.iloc[0]['Рекрутер'],
+            'Показатель': top_conv_inv_worked.iloc[0]['Конверсия из пригл. в вышедших из приглашенных, %']
+        })
+    else:
+        lb_rows.append({
+            'Категория': 'Лучшая конверсия из приглашенного в вышедшего (из приглашенных)',
+            'Рекрутер': 'Нет данных',
+            'Показатель': '—'
+        })
+    
+    if not top_responses.empty:
+        lb_rows.append({
+            'Категория': 'Больше всего откликов обработано',
+            'Рекрутер': top_responses.iloc[0]['Рекрутер'],
+            'Показатель': str(top_responses.iloc[0]['Кол-во откликов'])
+        })
+    else:
+        lb_rows.append({
+            'Категория': 'Больше всего откликов обработано',
+            'Рекрутер': 'Нет данных',
+            'Показатель': '—'
+        })
+    
+    lb_df = pd.DataFrame(lb_rows)
+    st.dataframe(
+        lb_df,
+        use_container_width=True,
+        column_config={
+            "Категория": st.column_config.TextColumn("Категория", width="auto"),
+            "Рекрутер": st.column_config.TextColumn("Рекрутер", width="auto"),
+            "Показатель": st.column_config.TextColumn("Показатель", width="auto"),
+        },
+        hide_index=True
+    )
+else:
+    st.info("Нет данных для LeaderBoard. Загрузите отчеты.")
 
 # ---- 1. Объединённая таблица рекрутеров (из обоих отчетов) ----
 recruiter_data = {}
+recruiter_data_all = {}
 
-if df_main_filtered is not None:
-    main_counts = df_main_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
-    main_counts.columns = ['Рекрутер', 'Кол-во направленных']
+def build_recruiter_data(df_main_f, df_kpi_f, merged_resp_f):
+    data = {}
+    if df_main_f is not None:
+        main_counts = df_main_f.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+        main_counts.columns = ['Рекрутер', 'Кол-во направленных']
 
-    if 'Дата первой подтвержденной смены за всю жизнь' in df_main_filtered.columns:
-        df_with_shift = df_main_filtered[df_main_filtered['Дата первой подтвержденной смены за всю жизнь'].notna()]
-        worked_main = df_with_shift.groupby('Рекрутер')['Телефон'].nunique().reset_index()
-        worked_main.columns = ['Рекрутер', 'Вышло из приглашенных']
-        main_counts = main_counts.merge(worked_main, on='Рекрутер', how='left').fillna(0)
-        main_counts['Вышло из приглашенных'] = main_counts['Вышло из приглашенных'].astype(int)
-    else:
-        main_counts['Вышло из приглашенных'] = 0
+        if 'Дата первой подтвержденной смены за всю жизнь' in df_main_f.columns:
+            df_with_shift = df_main_f[df_main_f['Дата первой подтвержденной смены за всю жизнь'].notna()]
+            worked_main = df_with_shift.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+            worked_main.columns = ['Рекрутер', 'Вышло из приглашенных']
+            main_counts = main_counts.merge(worked_main, on='Рекрутер', how='left').fillna(0)
+            main_counts['Вышло из приглашенных'] = main_counts['Вышло из приглашенных'].astype(int)
+        else:
+            main_counts['Вышло из приглашенных'] = 0
 
-    for _, row in main_counts.iterrows():
-        recruiter = row['Рекрутер']
-        if recruiter not in recruiter_data:
-            recruiter_data[recruiter] = {}
-        recruiter_data[recruiter]['Кол-во направленных'] = row['Кол-во направленных']
-        recruiter_data[recruiter]['Вышло из приглашенных'] = row['Вышло из приглашенных']
+        for _, row in main_counts.iterrows():
+            recruiter = row['Рекрутер']
+            if recruiter not in data:
+                data[recruiter] = {}
+            data[recruiter]['Кол-во направленных'] = row['Кол-во направленных']
+            data[recruiter]['Вышло из приглашенных'] = row['Вышло из приглашенных']
 
-if df_kpi_filtered is not None:
-    kpi_counts = df_kpi_filtered.groupby('Рекрутер')['Телефон гигера'].nunique().reset_index()
-    kpi_counts.columns = ['Рекрутер', 'Вышедшие (с дошедшими)']
-    for _, row in kpi_counts.iterrows():
-        recruiter = row['Рекрутер']
-        if recruiter not in recruiter_data:
-            recruiter_data[recruiter] = {}
-        recruiter_data[recruiter]['Вышедшие (с дошедшими)'] = row['Вышедшие (с дошедшими)']
+    if df_kpi_f is not None:
+        kpi_counts = df_kpi_f.groupby('Рекрутер')['Телефон гигера'].nunique().reset_index()
+        kpi_counts.columns = ['Рекрутер', 'Вышедшие (с дошедшими)']
+        for _, row in kpi_counts.iterrows():
+            recruiter = row['Рекрутер']
+            if recruiter not in data:
+                data[recruiter] = {}
+            data[recruiter]['Вышедшие (с дошедшими)'] = row['Вышедшие (с дошедшими)']
 
-# Добавляем данные из откликов (кол-во откликов и конверсия из откликов в вышедших)
-if merged_resp is not None:
-    for _, row in merged_resp.iterrows():
-        recruiter = row['Рекрутер']
-        if recruiter not in recruiter_data:
-            recruiter_data[recruiter] = {}
-        recruiter_data[recruiter]['Кол-во откликов'] = row['Кол-во откликов']
-        recruiter_data[recruiter]['Конверсия из откликов в вышедших, %'] = row['Конв. отклик->вышед, %']
+    if merged_resp_f is not None:
+        for _, row in merged_resp_f.iterrows():
+            recruiter = row['Рекрутер']
+            if recruiter not in data:
+                data[recruiter] = {}
+            data[recruiter]['Кол-во откликов'] = row['Кол-во откликов']
+            data[recruiter]['Конверсия из откликов в вышедших, %'] = row['Конв. отклик->вышед, %']
 
-if recruiter_data:
-    df_recruiters = pd.DataFrame.from_dict(recruiter_data, orient='index').reset_index()
-    df_recruiters.rename(columns={'index': 'Рекрутер'}, inplace=True)
+    return data
+
+recruiter_data = build_recruiter_data(df_main_filtered, df_kpi_filtered, merged_resp)
+recruiter_data_all = build_recruiter_data(df_main_filtered_all, df_kpi_filtered_all, merged_resp_all)
+
+def create_recruiter_df(data):
+    if not data:
+        return None
+    df = pd.DataFrame.from_dict(data, orient='index').reset_index()
+    df.rename(columns={'index': 'Рекрутер'}, inplace=True)
 
     numeric_cols = ['Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)', 'Кол-во откликов']
     for col in numeric_cols:
-        if col not in df_recruiters.columns:
-            df_recruiters[col] = 0
-        df_recruiters[col] = df_recruiters[col].fillna(0).astype(int)
+        if col not in df.columns:
+            df[col] = 0
+        df[col] = df[col].fillna(0).astype(int)
 
-    # Конверсии (из приглашенных)
-    df_recruiters['Конверсия из пригл. в вышедших из приглашенных, %'] = (
-        df_recruiters['Вышло из приглашенных'] / df_recruiters['Кол-во направленных'] * 100
+    df['Конверсия из пригл. в вышедших из приглашенных, %'] = (
+        df['Вышло из приглашенных'] / df['Кол-во направленных'] * 100
     ).round(1).fillna(0).astype(str) + '%'
 
-    df_recruiters['Конверсия из приглашенных в вышедших с дошедшими, %'] = (
-        df_recruiters['Вышедшие (с дошедшими)'] / df_recruiters['Кол-во направленных'] * 100
+    df['Конверсия из приглашенных в вышедших с дошедшими, %'] = (
+        df['Вышедшие (с дошедшими)'] / df['Кол-во направленных'] * 100
     ).round(1).fillna(0).astype(str) + '%'
 
-    if 'Конверсия из откликов в вышедших, %' not in df_recruiters.columns:
-        df_recruiters['Конверсия из откликов в вышедших, %'] = '0%'
+    if 'Конверсия из откликов в вышедших, %' not in df.columns:
+        df['Конверсия из откликов в вышедших, %'] = '0%'
 
-    # Сортировка
-    sort_col = 'Кол-во направленных' if df_recruiters['Кол-во направленных'].sum() > 0 else 'Вышедшие (с дошедшими)'
-    df_recruiters = df_recruiters.sort_values(sort_col, ascending=False)
+    return df
 
+df_recruiters = create_recruiter_df(recruiter_data)
+df_recruiters_all = create_recruiter_df(recruiter_data_all)
+
+if df_recruiters is not None and not df_recruiters.empty:
+    st.subheader("📋 Количество направленных кандидатов по рекрутерам")
+    
+    # Добавляем сводные строки
+    # Итог по выбранным
+    total_row = {'Рекрутер': 'Итого (по выбранным)'}
+    avg_row = {'Рекрутер': 'Среднее (по выбранным)'}
+    for col in ['Кол-во откликов', 'Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)']:
+        if col in df_recruiters.columns:
+            total_row[col] = df_recruiters[col].sum()
+            avg_row[col] = round(df_recruiters[col].mean(), 1)
+    
+    # Конверсии - вычисляем от итогов
+    total_invited = total_row.get('Кол-во направленных', 0)
+    total_worked_invited = total_row.get('Вышло из приглашенных', 0)
+    total_worked_done = total_row.get('Вышедшие (с дошедшими)', 0)
+    total_responses = total_row.get('Кол-во откликов', 0)
+    
+    total_row['Конверсия из пригл. в вышедших из приглашенных, %'] = (
+        f"{(total_worked_invited / total_invited * 100).round(1)}%" if total_invited > 0 else "0%"
+    )
+    total_row['Конверсия из приглашенных в вышедших с дошедшими, %'] = (
+        f"{(total_worked_done / total_invited * 100).round(1)}%" if total_invited > 0 else "0%"
+    )
+    total_row['Конверсия из откликов в вышедших, %'] = (
+        f"{(total_worked_done / total_responses * 100).round(1)}%" if total_responses > 0 else "0%"
+    )
+    
+    # Средние для конверсий (среднее по строкам)
+    for col in ['Конверсия из пригл. в вышедших из приглашенных, %', 
+                'Конверсия из приглашенных в вышедших с дошедшими, %',
+                'Конверсия из откликов в вышедших, %']:
+        if col in df_recruiters.columns:
+            vals = df_recruiters[col].str.replace('%', '').astype(float)
+            avg_row[col] = f"{round(vals.mean(), 1)}%"
+    
+    # Добавляем строку "Итого (включая скрытых)" если есть данные all
+    if df_recruiters_all is not None and not df_recruiters_all.empty:
+        total_all_row = {'Рекрутер': 'Итого (включая скрытых)'}
+        for col in ['Кол-во откликов', 'Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)']:
+            if col in df_recruiters_all.columns:
+                total_all_row[col] = df_recruiters_all[col].sum()
+        # Конверсии от итогов всех
+        total_invited_all = total_all_row.get('Кол-во направленных', 0)
+        total_worked_invited_all = total_all_row.get('Вышло из приглашенных', 0)
+        total_worked_done_all = total_all_row.get('Вышедшие (с дошедшими)', 0)
+        total_responses_all = total_all_row.get('Кол-во откликов', 0)
+        
+        total_all_row['Конверсия из пригл. в вышедших из приглашенных, %'] = (
+            f"{(total_worked_invited_all / total_invited_all * 100).round(1)}%" if total_invited_all > 0 else "0%"
+        )
+        total_all_row['Конверсия из приглашенных в вышедших с дошедшими, %'] = (
+            f"{(total_worked_done_all / total_invited_all * 100).round(1)}%" if total_invited_all > 0 else "0%"
+        )
+        total_all_row['Конверсия из откликов в вышедших, %'] = (
+            f"{(total_worked_done_all / total_responses_all * 100).round(1)}%" if total_responses_all > 0 else "0%"
+        )
+        # Добавляем в DataFrame
+        df_recruiters = pd.concat([df_recruiters, pd.DataFrame([total_all_row])], ignore_index=True)
+    
+    # Добавляем итоговую и среднюю строки
+    df_recruiters = pd.concat([df_recruiters, pd.DataFrame([total_row]), pd.DataFrame([avg_row])], ignore_index=True)
+    
+    # Убираем дублирование колонок с конверсией, если они есть
     display_cols = ['Рекрутер']
     col_config = {}
-    if 'Кол-во откликов' in df_recruiters.columns and df_recruiters['Кол-во откликов'].sum() > 0:
-        display_cols.append('Кол-во откликов')
-        col_config['Кол-во откликов'] = st.column_config.NumberColumn("Кол-во откликов", format="%d", width="auto")
-    if 'Кол-во направленных' in df_recruiters.columns and df_recruiters['Кол-во направленных'].sum() > 0:
-        display_cols.append('Кол-во направленных')
-        col_config['Кол-во направленных'] = st.column_config.NumberColumn("Кол-во направленных", format="%d", width="auto")
-    if 'Вышло из приглашенных' in df_recruiters.columns and df_recruiters['Вышло из приглашенных'].sum() > 0:
-        display_cols.append('Вышло из приглашенных')
-        col_config['Вышло из приглашенных'] = st.column_config.NumberColumn("Вышло из приглашенных", format="%d", width="auto")
-    if 'Конверсия из пригл. в вышедших из приглашенных, %' in df_recruiters.columns:
-        if df_recruiters['Кол-во направленных'].sum() > 0 and df_recruiters['Вышло из приглашенных'].sum() > 0:
-            display_cols.append('Конверсия из пригл. в вышедших из приглашенных, %')
-            col_config['Конверсия из пригл. в вышедших из приглашенных, %'] = st.column_config.TextColumn("Конверсия из пригл. в вышедших из приглашенных, %", width="auto")
-    if 'Вышедшие (с дошедшими)' in df_recruiters.columns and df_recruiters['Вышедшие (с дошедшими)'].sum() > 0:
-        display_cols.append('Вышедшие (с дошедшими)')
-        col_config['Вышедшие (с дошедшими)'] = st.column_config.NumberColumn("Вышедшие (с дошедшими)", format="%d", width="auto")
-    if 'Конверсия из приглашенных в вышедших с дошедшими, %' in df_recruiters.columns:
-        if df_recruiters['Кол-во направленных'].sum() > 0 and df_recruiters['Вышедшие (с дошедшими)'].sum() > 0:
-            display_cols.append('Конверсия из приглашенных в вышедших с дошедшими, %')
-            col_config['Конверсия из приглашенных в вышедших с дошедшими, %'] = st.column_config.TextColumn("Конверсия из приглашенных в вышедших с дошедшими, %", width="auto")
-    if 'Конверсия из откликов в вышедших, %' in df_recruiters.columns:
-        if df_recruiters['Кол-во откликов'].sum() > 0 and df_recruiters['Вышедшие (с дошедшими)'].sum() > 0:
-            display_cols.append('Конверсия из откликов в вышедших, %')
-            col_config['Конверсия из откликов в вышедших, %'] = st.column_config.TextColumn("Конверсия из откликов в вышедших, %", width="auto")
-
-    st.subheader("📋 Количество направленных кандидатов по рекрутерам")
+    for col in ['Кол-во откликов', 'Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)',
+                'Конверсия из пригл. в вышедших из приглашенных, %',
+                'Конверсия из приглашенных в вышедших с дошедшими, %',
+                'Конверсия из откликов в вышедших, %']:
+        if col in df_recruiters.columns:
+            display_cols.append(col)
+            if 'Конверсия' in col:
+                col_config[col] = st.column_config.TextColumn(col, width="auto")
+            else:
+                col_config[col] = st.column_config.NumberColumn(col, format="%d", width="auto")
+    
     st.dataframe(
         df_recruiters[display_cols],
         use_container_width=True,
@@ -771,80 +959,75 @@ else:
 # ---- 4. Вышедшие по проектам (объединённый блок) ----
 st.subheader("✅ Вышедшие по проектам")
 
-# Данные по проектам из основного отчёта
-if df_main_filtered is not None:
-    # Определяем вышедших из приглашенных (из основного отчёта)
-    if 'Статус координатора' in df_main_filtered.columns:
-        df_worked_main = df_main_filtered[df_main_filtered['Статус координатора'] == 'went_work']
-    else:
-        df_worked_main = df_main_filtered[df_main_filtered['Статус лида'] == 'worked']
-    
-    # Если нет данных о вышедших, создаём пустой DataFrame
-    if df_worked_main.empty or 'Проект первой подтвержденной смены' not in df_worked_main.columns:
-        main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
-    else:
-        # Приглашенные по проектам (все кандидаты)
-        df_projects_all = df_main_filtered.copy()
-        if 'Желаемые проекты (Клиент)' in df_projects_all.columns:
-            df_projects_all['Проект'] = df_projects_all.apply(
-                lambda row: normalize_project(row['Желаемые проекты (Клиент)']) if row['Желаемые проекты (Группа)'] == 'Без группы' else normalize_project(row['Желаемые проекты (Группа)']),
-                axis=1
-            )
+# Функция для получения данных по проектам
+def get_project_data(df_main_f, df_kpi_f):
+    if df_main_f is not None:
+        if 'Статус координатора' in df_main_f.columns:
+            df_worked_main = df_main_f[df_main_f['Статус координатора'] == 'went_work']
         else:
-            df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)'].apply(normalize_project)
+            df_worked_main = df_main_f[df_main_f['Статус лида'] == 'worked']
         
-        df_projects_all = df_projects_all[df_projects_all['Проект'].notna() & (df_projects_all['Проект'] != '')]
-        invited_counts = df_projects_all.groupby('Проект')['Телефон'].nunique().reset_index()
-        invited_counts.columns = ['Проект', 'Кол-во приглашенных']
-        
-        # Вышедшие из приглашенных
-        df_worked_main['Проект'] = df_worked_main['Проект первой подтвержденной смены'].apply(normalize_project)
-        worked_main_counts = df_worked_main.groupby('Проект')['Телефон'].nunique().reset_index()
-        worked_main_counts.columns = ['Проект', 'Кол-во вышедших (из приглашенных)']
-        
-        main_project_data = pd.merge(invited_counts, worked_main_counts, on='Проект', how='outer').fillna(0)
-        main_project_data['Кол-во приглашенных'] = main_project_data['Кол-во приглашенных'].astype(int)
-        main_project_data['Кол-во вышедших (из приглашенных)'] = main_project_data['Кол-во вышедших (из приглашенных)'].astype(int)
-else:
-    main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
-
-# Данные из KPI (вышедшие с дошедшими)
-if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
-    kpi_project_counts = df_kpi_filtered.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
-    kpi_project_counts.columns = ['Проект', 'Кол-во вышедших (с дошедшими)']
-    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
-else:
-    kpi_project_counts = pd.DataFrame(columns=['Проект', 'Кол-во вышедших (с дошедшими)'])
-
-# Объединяем и нормализуем проекты
-if not main_project_data.empty:
-    main_project_data['Проект'] = main_project_data['Проект'].apply(lambda x: normalize_project(x).strip())
-if not kpi_project_counts.empty:
-    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
-
-merged_projects = pd.merge(main_project_data, kpi_project_counts, on='Проект', how='outer').fillna(0)
-for col in ['Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)', 'Кол-во вышедших (с дошедшими)']:
-    if col in merged_projects.columns:
-        merged_projects[col] = merged_projects[col].astype(int)
+        if df_worked_main.empty or 'Проект первой подтвержденной смены' not in df_worked_main.columns:
+            main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
+        else:
+            df_projects_all = df_main_f.copy()
+            if 'Желаемые проекты (Клиент)' in df_projects_all.columns:
+                df_projects_all['Проект'] = df_projects_all.apply(
+                    lambda row: normalize_project(row['Желаемые проекты (Клиент)']) if row['Желаемые проекты (Группа)'] == 'Без группы' else normalize_project(row['Желаемые проекты (Группа)']),
+                    axis=1
+                )
+            else:
+                df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)'].apply(normalize_project)
+            
+            df_projects_all = df_projects_all[df_projects_all['Проект'].notna() & (df_projects_all['Проект'] != '')]
+            invited_counts = df_projects_all.groupby('Проект')['Телефон'].nunique().reset_index()
+            invited_counts.columns = ['Проект', 'Кол-во приглашенных']
+            
+            df_worked_main['Проект'] = df_worked_main['Проект первой подтвержденной смены'].apply(normalize_project)
+            worked_main_counts = df_worked_main.groupby('Проект')['Телефон'].nunique().reset_index()
+            worked_main_counts.columns = ['Проект', 'Кол-во вышедших (из приглашенных)']
+            
+            main_project_data = pd.merge(invited_counts, worked_main_counts, on='Проект', how='outer').fillna(0)
+            main_project_data['Кол-во приглашенных'] = main_project_data['Кол-во приглашенных'].astype(int)
+            main_project_data['Кол-во вышедших (из приглашенных)'] = main_project_data['Кол-во вышедших (из приглашенных)'].astype(int)
     else:
-        merged_projects[col] = 0
+        main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
 
-# Конверсии
-merged_projects['Конв. из приглашенных в вышедших из пригл., %'] = (
-    merged_projects['Кол-во вышедших (из приглашенных)'] / merged_projects['Кол-во приглашенных'] * 100
-).round(1).fillna(0).astype(str) + '%'
+    if df_kpi_f is not None and 'Клиент' in df_kpi_f.columns:
+        kpi_project_counts = df_kpi_f.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
+        kpi_project_counts.columns = ['Проект', 'Кол-во вышедших (с дошедшими)']
+        kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
+    else:
+        kpi_project_counts = pd.DataFrame(columns=['Проект', 'Кол-во вышедших (с дошедшими)'])
 
-merged_projects['Конв. из приглашенных в вышедших с дошедшими, %'] = (
-    merged_projects['Кол-во вышедших (с дошедшими)'] / merged_projects['Кол-во приглашенных'] * 100
-).round(1).fillna(0).astype(str) + '%'
+    if not main_project_data.empty:
+        main_project_data['Проект'] = main_project_data['Проект'].apply(lambda x: normalize_project(x).strip())
+    if not kpi_project_counts.empty:
+        kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(lambda x: normalize_project(x).strip())
 
-# Сортировка по количеству приглашенных
-merged_projects = merged_projects.sort_values('Кол-во приглашенных', ascending=False)
+    merged = pd.merge(main_project_data, kpi_project_counts, on='Проект', how='outer').fillna(0)
+    for col in ['Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)', 'Кол-во вышедших (с дошедшими)']:
+        if col in merged.columns:
+            merged[col] = merged[col].astype(int)
+        else:
+            merged[col] = 0
 
-# Отображаем таблицу
-if not merged_projects.empty and merged_projects['Кол-во приглашенных'].sum() > 0:
+    merged['Конв. из приглашенных в вышедших из пригл., %'] = (
+        merged['Кол-во вышедших (из приглашенных)'] / merged['Кол-во приглашенных'] * 100
+    ).round(1).fillna(0).astype(str) + '%'
+
+    merged['Конв. из приглашенных в вышедших с дошедшими, %'] = (
+        merged['Кол-во вышедших (с дошедшими)'] / merged['Кол-во приглашенных'] * 100
+    ).round(1).fillna(0).astype(str) + '%'
+
+    return merged
+
+project_data = get_project_data(df_main_filtered, df_kpi_filtered)
+
+if not project_data.empty and project_data['Кол-во приглашенных'].sum() > 0:
+    # Отображаем таблицу без итоговых строк
     st.dataframe(
-        merged_projects,
+        project_data,
         use_container_width=True,
         column_config={
             "Проект": st.column_config.TextColumn("Проект", width="auto"),
@@ -855,76 +1038,130 @@ if not merged_projects.empty and merged_projects['Кол-во приглашен
             "Конв. из приглашенных в вышедших с дошедшими, %": st.column_config.TextColumn("Конв. из приглашенных в вышедших с дошедшими, %", width="auto"),
         }
     )
+    
+    # ---- Горизонтальная диаграмма по вышедшим (с дошедшими) по проектам ----
+    if 'Кол-во вышедших (с дошедшими)' in project_data.columns and project_data['Кол-во вышедших (с дошедшими)'].sum() > 0:
+        df_proj_worked = project_data[project_data['Кол-во вышедших (с дошедшими)'] > 0].copy()
+        df_proj_worked = df_proj_worked.sort_values('Кол-во вышедших (с дошедшими)', ascending=False)
+        
+        if not df_proj_worked.empty:
+            fig_worked_proj = px.bar(
+                df_proj_worked,
+                x='Кол-во вышедших (с дошедшими)',
+                y='Проект',
+                orientation='h',
+                title="Количество вышедших (с дошедшими) по проектам",
+                labels={'Кол-во вышедших (с дошедшими)': 'Кол-во вышедших (с дошедшими)', 'Проект': ''},
+                text='Кол-во вышедших (с дошедшими)',
+                color='Кол-во вышедших (с дошедшими)',
+                color_continuous_scale='Greens',
+                height=500
+            )
+            fig_worked_proj.update_traces(textposition='outside')
+            fig_worked_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_worked_proj, use_container_width=True)
 else:
     st.info("Нет данных по проектам для вышедших кандидатов.")
 
 # ---- 5. Объединённый блок: Статистика по городам ----
 st.subheader("🏙️ Статистика по городам")
 
-# Подготовка данных по городам
 city_data = {}
+city_data_all = {}
 
-# 1. Кол-во откликов из отчета по обработке откликов
-if df_resp_for_city is not None and 'Город вакансии' in df_resp_for_city.columns:
-    city_resp = df_resp_for_city[df_resp_for_city['Город вакансии'].notna() & (df_resp_for_city['Город вакансии'].astype(str).str.strip() != '')].copy()
-    city_resp['Город'] = city_resp['Город вакансии'].astype(str).str.strip()
-    city_resp_counts = city_resp.groupby('Город').size().reset_index(name='Кол-во откликов')
-    for _, row in city_resp_counts.iterrows():
-        city = row['Город']
-        if city not in city_data:
-            city_data[city] = {}
-        city_data[city]['Кол-во откликов'] = row['Кол-во откликов']
+def build_city_data(df_resp_f, df_main_f, df_kpi_f):
+    data = {}
+    if df_resp_f is not None and 'Город вакансии' in df_resp_f.columns:
+        city_resp = df_resp_f[df_resp_f['Город вакансии'].notna() & (df_resp_f['Город вакансии'].astype(str).str.strip() != '')].copy()
+        city_resp['Город'] = city_resp['Город вакансии'].astype(str).str.strip()
+        city_resp_counts = city_resp.groupby('Город').size().reset_index(name='Кол-во откликов')
+        for _, row in city_resp_counts.iterrows():
+            city = row['Город']
+            if city not in data:
+                data[city] = {}
+            data[city]['Кол-во откликов'] = row['Кол-во откликов']
 
-# 2. Приглашенные (из основного отчёта)
-if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
-    city_invited = df_main_filtered[
-        df_main_filtered['Город'].notna() & 
-        (df_main_filtered['Город'].astype(str).str.strip() != '')
-    ].copy()
-    city_invited['Город'] = city_invited['Город'].astype(str).str.strip()
-    invited_city = city_invited.groupby('Город')['Телефон'].nunique().reset_index()
-    invited_city.columns = ['Город', 'Кол-во приглашенных']
-    for _, row in invited_city.iterrows():
-        city = row['Город']
-        if city not in city_data:
-            city_data[city] = {}
-        city_data[city]['Кол-во приглашенных'] = row['Кол-во приглашенных']
+    if df_main_f is not None and 'Город' in df_main_f.columns:
+        city_invited = df_main_f[
+            df_main_f['Город'].notna() & 
+            (df_main_f['Город'].astype(str).str.strip() != '')
+        ].copy()
+        city_invited['Город'] = city_invited['Город'].astype(str).str.strip()
+        invited_city = city_invited.groupby('Город')['Телефон'].nunique().reset_index()
+        invited_city.columns = ['Город', 'Кол-во приглашенных']
+        for _, row in invited_city.iterrows():
+            city = row['Город']
+            if city not in data:
+                data[city] = {}
+            data[city]['Кол-во приглашенных'] = row['Кол-во приглашенных']
 
-# 3. Вышедшие (из KPI)
-if df_kpi_filtered is not None and 'Город первой смены' in df_kpi_filtered.columns:
-    df_kpi_city = df_kpi_filtered[
-        df_kpi_filtered['Рекрутер'].notna() & 
-        (df_kpi_filtered['Рекрутер'].astype(str).str.strip() != '') &
-        df_kpi_filtered['Город первой смены'].notna() & 
-        (df_kpi_filtered['Город первой смены'].astype(str).str.strip() != '')
-    ].copy()
-    df_kpi_city['Город'] = df_kpi_city['Город первой смены'].astype(str).str.strip()
-    worked_city = df_kpi_city.groupby('Город')['Телефон гигера'].nunique().reset_index()
-    worked_city.columns = ['Город', 'Кол-во вышедших']
-    for _, row in worked_city.iterrows():
-        city = row['Город']
-        if city not in city_data:
-            city_data[city] = {}
-        city_data[city]['Кол-во вышедших'] = row['Кол-во вышедших']
+    if df_kpi_f is not None and 'Город первой смены' in df_kpi_f.columns:
+        df_kpi_city = df_kpi_f[
+            df_kpi_f['Рекрутер'].notna() & 
+            (df_kpi_f['Рекрутер'].astype(str).str.strip() != '') &
+            df_kpi_f['Город первой смены'].notna() & 
+            (df_kpi_f['Город первой смены'].astype(str).str.strip() != '')
+        ].copy()
+        df_kpi_city['Город'] = df_kpi_city['Город первой смены'].astype(str).str.strip()
+        worked_city = df_kpi_city.groupby('Город')['Телефон гигера'].nunique().reset_index()
+        worked_city.columns = ['Город', 'Кол-во вышедших']
+        for _, row in worked_city.iterrows():
+            city = row['Город']
+            if city not in data:
+                data[city] = {}
+            data[city]['Кол-во вышедших'] = row['Кол-во вышедших']
+    return data
+
+city_data = build_city_data(df_responses_filtered, df_main_filtered, df_kpi_filtered)
+city_data_all = build_city_data(df_responses_filtered_all, df_main_filtered_all, df_kpi_filtered_all)
 
 if city_data:
     df_city = pd.DataFrame.from_dict(city_data, orient='index').reset_index()
     df_city.rename(columns={'index': 'Город'}, inplace=True)
     
-    # Заполняем пропуски
     for col in ['Кол-во откликов', 'Кол-во приглашенных', 'Кол-во вышедших']:
         if col not in df_city.columns:
             df_city[col] = 0
         df_city[col] = df_city[col].fillna(0).astype(int)
     
-    # Доля приглашенных
     total_invited = df_city['Кол-во приглашенных'].sum()
     df_city['Доля приглашенных'] = (df_city['Кол-во приглашенных'] / total_invited * 100).round(1).astype(str) + '%' if total_invited > 0 else '0%'
-    
-    # Конверсия из направленных в вышедших
     df_city['Конверсия из направленных в вышедших, %'] = (
         df_city['Кол-во вышедших'] / df_city['Кол-во приглашенных'] * 100
     ).round(1).fillna(0).astype(str) + '%'
+    
+    # Добавляем итоговые строки
+    total_row = {'Город': 'Итого (по выбранным)'}
+    avg_row = {'Город': 'Среднее (по выбранным)'}
+    for col in ['Кол-во откликов', 'Кол-во приглашенных', 'Кол-во вышедших']:
+        if col in df_city.columns:
+            total_row[col] = df_city[col].sum()
+            avg_row[col] = round(df_city[col].mean(), 1)
+    total_row['Доля приглашенных'] = '100%'
+    total_row['Конверсия из направленных в вышедших, %'] = (
+        f"{(total_row.get('Кол-во вышедших', 0) / total_row.get('Кол-во приглашенных', 1) * 100).round(1)}%"
+    ) if total_row.get('Кол-во приглашенных', 0) > 0 else '0%'
+    
+    # Средние для конверсий
+    vals_conv = df_city['Конверсия из направленных в вышедших, %'].str.replace('%', '').astype(float)
+    avg_row['Конверсия из направленных в вышедших, %'] = f"{round(vals_conv.mean(), 1)}%"
+    
+    df_city = pd.concat([df_city, pd.DataFrame([total_row]), pd.DataFrame([avg_row])], ignore_index=True)
+    
+    # Добавляем "Итого (включая скрытых)"
+    if city_data_all:
+        total_all_row = {'Город': 'Итого (включая скрытых)'}
+        df_city_all = pd.DataFrame.from_dict(city_data_all, orient='index').reset_index()
+        df_city_all.rename(columns={'index': 'Город'}, inplace=True)
+        for col in ['Кол-во откликов', 'Кол-во приглашенных', 'Кол-во вышедших']:
+            if col not in df_city_all.columns:
+                df_city_all[col] = 0
+            total_all_row[col] = df_city_all[col].sum()
+        total_all_row['Доля приглашенных'] = '100%'
+        total_all_row['Конверсия из направленных в вышедших, %'] = (
+            f"{(total_all_row.get('Кол-во вышедших', 0) / total_all_row.get('Кол-во приглашенных', 1) * 100).round(1)}%"
+        ) if total_all_row.get('Кол-во приглашенных', 0) > 0 else '0%'
+        df_city = pd.concat([df_city, pd.DataFrame([total_all_row])], ignore_index=True)
     
     df_city = df_city.sort_values('Кол-во приглашенных', ascending=False)
     
@@ -1005,12 +1242,80 @@ if df_kpi_filtered is not None:
                 "% от всех": st.column_config.TextColumn("% от всех", width="auto"),
             }
         )
+        
+        # ---- Круговая диаграмма по вышедшим (с дошедшими) по источникам ----
+        st.subheader("📊 Распределение вышедших (с дошедшими) по источникам")
+        df_pie = df_kpi_filtered.groupby('Источник ОМПП')['Телефон гигера'].nunique().reset_index()
+        df_pie.columns = ['Источник', 'Кол-во']
+        df_pie = df_pie[df_pie['Кол-во'] > 0]
+        
+        if not df_pie.empty:
+            fig_pie = px.pie(
+                df_pie,
+                values='Кол-во',
+                names='Источник',
+                title='Распределение вышедших (с дошедшими) по источникам',
+                hover_data={'Кол-во': True, 'Источник': True},
+                labels={'Источник': 'Источник', 'Кол-во': 'Кол-во вышедших'}
+            )
+            fig_pie.update_traces(
+                textposition='inside',
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>Кол-во: %{value}<br>Доля: %{percent}'
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
+        else:
+            st.info("Нет данных для круговой диаграммы по источникам.")
 
 # ---- 7. Блок: Обработка откликов (таблица) ----
 if merged_resp is not None:
     st.subheader("📋 Обработка откликов")
+    
+    # Добавляем итоговые строки
+    df_resp_display = merged_resp.copy()
+    total_row = {'Рекрутер': 'Итого (по выбранным)'}
+    avg_row = {'Рекрутер': 'Среднее (по выбранным)'}
+    for col in ['Кол-во откликов', 'Кол-во регистраций', 'Кол-во направленных из откликов', 'Вышедшие из откликов']:
+        if col in df_resp_display.columns:
+            total_row[col] = df_resp_display[col].sum()
+            avg_row[col] = round(df_resp_display[col].mean(), 1)
+    
+    # Конверсии от итогов
+    total_resp = total_row.get('Кол-во откликов', 0)
+    total_reg = total_row.get('Кол-во регистраций', 0)
+    total_inv = total_row.get('Кол-во направленных из откликов', 0)
+    total_worked = total_row.get('Вышедшие из откликов', 0)
+    total_row['Конв. отклик->регистр, %'] = f"{(total_reg / total_resp * 100).round(1)}%" if total_resp > 0 else "0%"
+    total_row['Конв. регистр->направл, %'] = f"{(total_inv / total_reg * 100).round(1)}%" if total_reg > 0 else "0%"
+    total_row['Конв. направл->вышед, %'] = f"{(total_worked / total_inv * 100).round(1)}%" if total_inv > 0 else "0%"
+    total_row['Конв. отклик->вышед, %'] = f"{(total_worked / total_resp * 100).round(1)}%" if total_resp > 0 else "0%"
+    
+    # Средние для конверсий
+    for col in ['Конв. отклик->регистр, %', 'Конв. регистр->направл, %', 'Конв. направл->вышед, %', 'Конв. отклик->вышед, %']:
+        if col in df_resp_display.columns:
+            vals = df_resp_display[col].str.replace('%', '').astype(float)
+            avg_row[col] = f"{round(vals.mean(), 1)}%"
+    
+    df_resp_display = pd.concat([df_resp_display, pd.DataFrame([total_row]), pd.DataFrame([avg_row])], ignore_index=True)
+    
+    # Добавляем "Итого (включая скрытых)"
+    if merged_resp_all is not None:
+        total_all_row = {'Рекрутер': 'Итого (включая скрытых)'}
+        for col in ['Кол-во откликов', 'Кол-во регистраций', 'Кол-во направленных из откликов', 'Вышедшие из откликов']:
+            if col in merged_resp_all.columns:
+                total_all_row[col] = merged_resp_all[col].sum()
+        total_resp_all = total_all_row.get('Кол-во откликов', 0)
+        total_reg_all = total_all_row.get('Кол-во регистраций', 0)
+        total_inv_all = total_all_row.get('Кол-во направленных из откликов', 0)
+        total_worked_all = total_all_row.get('Вышедшие из откликов', 0)
+        total_all_row['Конв. отклик->регистр, %'] = f"{(total_reg_all / total_resp_all * 100).round(1)}%" if total_resp_all > 0 else "0%"
+        total_all_row['Конв. регистр->направл, %'] = f"{(total_inv_all / total_reg_all * 100).round(1)}%" if total_reg_all > 0 else "0%"
+        total_all_row['Конв. направл->вышед, %'] = f"{(total_worked_all / total_inv_all * 100).round(1)}%" if total_inv_all > 0 else "0%"
+        total_all_row['Конв. отклик->вышед, %'] = f"{(total_worked_all / total_resp_all * 100).round(1)}%" if total_resp_all > 0 else "0%"
+        df_resp_display = pd.concat([df_resp_display, pd.DataFrame([total_all_row])], ignore_index=True)
+    
     st.dataframe(
-        merged_resp,
+        df_resp_display,
         use_container_width=True,
         column_config={
             "Рекрутер": st.column_config.TextColumn("Рекрутер", width="auto"),
@@ -1030,11 +1335,6 @@ if df_diagram is not None:
     st.subheader("📊 Время обработки откликов в рабочее время")
 
     try:
-        # В файле:
-        # строка 0 = даты
-        # строка 1 = обработано за 15 минут
-        # строка 2 = обработано менее чем за час
-
         dates = df_diagram.iloc[0, 1:]
         values_15 = df_diagram.iloc[1, 1:]
         values_hour = df_diagram.iloc[2, 1:]
@@ -1042,54 +1342,45 @@ if df_diagram is not None:
         rows = []
 
         for dt_raw, val15, val60 in zip(dates, values_15, values_hour):
-
             dt = parse_diagram_date(str(dt_raw))
-
             if pd.isna(dt):
                 try:
                     dt = pd.to_datetime(dt_raw, errors='coerce')
                 except:
                     continue
-
             if pd.isna(dt):
                 continue
 
             try:
-                val15 = float(val15)
-                val60 = float(val60)
+                v15 = float(val15)
+                v60 = float(val60)
             except:
                 continue
 
-            # если значения записаны как 0.71 -> превращаем в 71
-            if val15 <= 1:
-                val15 *= 100
-
-            if val60 <= 1:
-                val60 *= 100
+            if v15 <= 1:
+                v15 *= 100
+            if v60 <= 1:
+                v60 *= 100
 
             rows.append({
                 'Дата': dt,
-                'В течение 15 минут': val15,
-                'Менее часа': val60
+                'В течение 15 минут': v15,
+                'Менее часа': v60
             })
 
         if rows:
-
             df_chart = pd.DataFrame(rows)
+            df_chart['Месяц'] = df_chart['Дата'].dt.to_period('M').astype(str)
+            monthly_avg = df_chart.groupby('Месяц')[['В течение 15 минут', 'Менее часа']].mean().round(1).reset_index()
 
-            df_chart['Месяц'] = (
-                df_chart['Дата']
-                .dt.to_period('M')
-                .astype(str)
-            )
-
-            monthly_avg = (
-                df_chart.groupby('Месяц')
-                [['В течение 15 минут', 'Менее часа']]
-                .mean()
-                .round(1)
-                .reset_index()
-            )
+            # Общее среднее за период
+            overall_avg = df_chart[['В течение 15 минут', 'Менее часа']].mean().round(1)
+            overall_row = {
+                'Месяц': 'Среднее за период',
+                'В течение 15 минут': overall_avg['В течение 15 минут'],
+                'Менее часа': overall_avg['Менее часа']
+            }
+            monthly_avg = pd.concat([monthly_avg, pd.DataFrame([overall_row])], ignore_index=True)
 
             fig = px.bar(
                 monthly_avg,
