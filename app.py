@@ -23,12 +23,9 @@ PROJECT_ALIASES = {
 def normalize_project(project_name):
     if not isinstance(project_name, str):
         return project_name
-    # Удаляем лишние пробелы и приводим к нижнему регистру
     cleaned = project_name.strip().lower()
-    # Проверяем по алиасам
     if cleaned in PROJECT_ALIASES:
         return PROJECT_ALIASES[cleaned]
-    # Если не найден, возвращаем с удалением пробелов по краям (сохраняя регистр)
     return project_name.strip()
 
 # ---- Функция поиска столбца ----
@@ -48,45 +45,21 @@ def find_column(df, keywords, exact_match=None):
 def parse_diagram_date(date_str):
     if pd.isna(date_str):
         return pd.NaT
-
     date_str = str(date_str).strip().lower()
-
-    # Сначала пробуем обычное преобразование
     dt = pd.to_datetime(date_str, errors='coerce')
-
     if pd.notna(dt):
         return dt
-
-    # Русские сокращения месяцев
     month_map = {
-        'янв': 1,
-        'фев': 2,
-        'мар': 3,
-        'апр': 4,
-        'май': 5,
-        'июн': 6,
-        'июл': 7,
-        'авг': 8,
-        'сен': 9,
-        'окт': 10,
-        'ноя': 11,
-        'дек': 12
+        'янв': 1, 'фев': 2, 'мар': 3, 'апр': 4,
+        'май': 5, 'июн': 6, 'июл': 7, 'авг': 8,
+        'сен': 9, 'окт': 10, 'ноя': 11, 'дек': 12
     }
-
-    # Формат: 01.фев, 15.май и т.п.
     match = re.match(r'(\d{1,2})\.(\D+)', date_str)
-
     if match:
         day = int(match.group(1))
         month_name = match.group(2).strip()[:3]
-
         if month_name in month_map:
-            return pd.Timestamp(
-                year=2026,
-                month=month_map[month_name],
-                day=day
-            )
-
+            return pd.Timestamp(year=2026, month=month_map[month_name], day=day)
     return pd.NaT
 
 # ---- Загрузка основного файла (направления) ----
@@ -606,93 +579,6 @@ if df_responses_filtered is not None:
 if df_responses_filtered_all is not None:
     merged_resp_all = compute_responses_table(df_responses_filtered_all)
 
-# ---- Функция для построения LeaderBoard ----
-def build_leaderboard(df_recruiters):
-    if df_recruiters is None or df_recruiters.empty:
-        return None
-    
-    # Создаем копию и преобразуем конверсии в числа
-    df_lead = df_recruiters.copy()
-    
-    # Преобразуем процентные строки в числа
-    for col in ['Конверсия из откликов в вышедших, %', 'Конверсия из пригл. в вышедших из приглашенных, %']:
-        if col in df_lead.columns:
-            df_lead[col + '_num'] = df_lead[col].str.replace('%', '').astype(float)
-    
-    # Топ-1 по конверсии из отклика в вышедшего (с дошедшими)
-    top_conv_resp_worked = df_lead.nlargest(1, 'Конверсия из откликов в вышедших, %_num') if 'Конверсия из откликов в вышедших, %_num' in df_lead.columns else pd.DataFrame()
-    
-    # Топ-1 по конверсии из приглашенного в вышедшего (из приглашенных)
-    top_conv_inv_worked = df_lead.nlargest(1, 'Конверсия из пригл. в вышедших из приглашенных, %_num') if 'Конверсия из пригл. в вышедших из приглашенных, %_num' in df_lead.columns else pd.DataFrame()
-    
-    # Топ-1 по количеству обработанных откликов
-    top_responses = df_lead.nlargest(1, 'Кол-во откликов') if 'Кол-во откликов' in df_lead.columns else pd.DataFrame()
-    
-    return top_conv_resp_worked, top_conv_inv_worked, top_responses
-
-# ---- 0. LeaderBoard (самая первая таблица) ----
-st.subheader("🏆 LeaderBoard")
-lb_data = build_leaderboard(df_recruiters)
-
-if lb_data is not None:
-    top_conv_resp_worked, top_conv_inv_worked, top_responses = lb_data
-    
-    # Создаем DataFrame для отображения
-    lb_rows = []
-    
-    if not top_conv_resp_worked.empty:
-        lb_rows.append({
-            'Категория': 'Лучшая конверсия из отклика в вышедшего (с дошедшими)',
-            'Рекрутер': top_conv_resp_worked.iloc[0]['Рекрутер'],
-            'Показатель': top_conv_resp_worked.iloc[0]['Конверсия из откликов в вышедших, %']
-        })
-    else:
-        lb_rows.append({
-            'Категория': 'Лучшая конверсия из отклика в вышедшего (с дошедшими)',
-            'Рекрутер': 'Нет данных',
-            'Показатель': '—'
-        })
-    
-    if not top_conv_inv_worked.empty:
-        lb_rows.append({
-            'Категория': 'Лучшая конверсия из приглашенного в вышедшего (из приглашенных)',
-            'Рекрутер': top_conv_inv_worked.iloc[0]['Рекрутер'],
-            'Показатель': top_conv_inv_worked.iloc[0]['Конверсия из пригл. в вышедших из приглашенных, %']
-        })
-    else:
-        lb_rows.append({
-            'Категория': 'Лучшая конверсия из приглашенного в вышедшего (из приглашенных)',
-            'Рекрутер': 'Нет данных',
-            'Показатель': '—'
-        })
-    
-    if not top_responses.empty:
-        lb_rows.append({
-            'Категория': 'Больше всего откликов обработано',
-            'Рекрутер': top_responses.iloc[0]['Рекрутер'],
-            'Показатель': str(top_responses.iloc[0]['Кол-во откликов'])
-        })
-    else:
-        lb_rows.append({
-            'Категория': 'Больше всего откликов обработано',
-            'Рекрутер': 'Нет данных',
-            'Показатель': '—'
-        })
-    
-    lb_df = pd.DataFrame(lb_rows)
-    st.dataframe(
-        lb_df,
-        use_container_width=True,
-        column_config={
-            "Категория": st.column_config.TextColumn("Категория", width="auto"),
-            "Рекрутер": st.column_config.TextColumn("Рекрутер", width="auto"),
-            "Показатель": st.column_config.TextColumn("Показатель", width="auto"),
-        },
-        hide_index=True
-    )
-else:
-    st.info("Нет данных для LeaderBoard. Загрузите отчеты.")
-
 # ---- 1. Объединённая таблица рекрутеров (из обоих отчетов) ----
 recruiter_data = {}
 recruiter_data_all = {}
@@ -769,11 +655,72 @@ def create_recruiter_df(data):
 df_recruiters = create_recruiter_df(recruiter_data)
 df_recruiters_all = create_recruiter_df(recruiter_data_all)
 
+# ---- Функция для построения LeaderBoard ----
+def build_leaderboard(df_recruiters):
+    """Возвращает DataFrame с тремя строками: лучшая конверсия из отклика, лучшая конверсия из приглашенных, больше всего откликов."""
+    if df_recruiters is None or df_recruiters.empty:
+        return pd.DataFrame()
+    # Убираем строки с итогами (если они есть)
+    df_clean = df_recruiters[~df_recruiters['Рекрутер'].str.contains('Итого|Среднее', na=False)].copy()
+    if df_clean.empty:
+        return pd.DataFrame()
+    # 1. Лучшая конверсия из отклика в вышедшего (с дошедшими)
+    if 'Конверсия из откликов в вышедших, %' in df_clean.columns:
+        df_clean['conv_resp_to_worked'] = df_clean['Конверсия из откликов в вышедших, %'].str.replace('%', '').astype(float)
+    else:
+        df_clean['conv_resp_to_worked'] = 0
+    best_conv_resp = df_clean.loc[df_clean['conv_resp_to_worked'].idxmax()] if not df_clean.empty else None
+
+    # 2. Лучшая конверсия из приглашенного в вышедшего (из приглашенных)
+    if 'Конверсия из пригл. в вышедших из приглашенных, %' in df_clean.columns:
+        df_clean['conv_inv_to_worked'] = df_clean['Конверсия из пригл. в вышедших из приглашенных, %'].str.replace('%', '').astype(float)
+    else:
+        df_clean['conv_inv_to_worked'] = 0
+    best_conv_inv = df_clean.loc[df_clean['conv_inv_to_worked'].idxmax()] if not df_clean.empty else None
+
+    # 3. Больше всего откликов обработано
+    if 'Кол-во откликов' in df_clean.columns:
+        most_responses = df_clean.loc[df_clean['Кол-во откликов'].idxmax()] if not df_clean.empty else None
+    else:
+        most_responses = None
+
+    rows = []
+    if best_conv_resp is not None:
+        rows.append({
+            'Категория': 'Лучшая конверсия из отклика → вышедший (с дошедшими)',
+            'Рекрутер': best_conv_resp['Рекрутер'],
+            'Значение': f"{best_conv_resp['conv_resp_to_worked']:.1f}%"
+        })
+    if best_conv_inv is not None:
+        rows.append({
+            'Категория': 'Лучшая конверсия из приглашенного → вышедший (из приглашенных)',
+            'Рекрутер': best_conv_inv['Рекрутер'],
+            'Значение': f"{best_conv_inv['conv_inv_to_worked']:.1f}%"
+        })
+    if most_responses is not None:
+        rows.append({
+            'Категория': 'Больше всего откликов обработано',
+            'Рекрутер': most_responses['Рекрутер'],
+            'Значение': str(int(most_responses['Кол-во откликов']))
+        })
+    return pd.DataFrame(rows)
+
+# ---- LeaderBoard (выводим сразу после заголовка) ----
+if 'df_recruiters' in locals() and df_recruiters is not None and not df_recruiters.empty:
+    lb = build_leaderboard(df_recruiters)
+    if not lb.empty:
+        st.subheader("🏆 Лидерборд")
+        cols = st.columns(3)
+        for i, (_, row) in enumerate(lb.iterrows()):
+            with cols[i]:
+                st.metric(label=row['Категория'], value=row['Значение'], delta=row['Рекрутер'])
+        st.markdown("---")
+
+# ---- 1. Объединённая таблица рекрутеров (из обоих отчетов) ----
 if df_recruiters is not None and not df_recruiters.empty:
     st.subheader("📋 Количество направленных кандидатов по рекрутерам")
     
     # Добавляем сводные строки
-    # Итог по выбранным
     total_row = {'Рекрутер': 'Итого (по выбранным)'}
     avg_row = {'Рекрутер': 'Среднее (по выбранным)'}
     for col in ['Кол-во откликов', 'Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)']:
@@ -781,7 +728,6 @@ if df_recruiters is not None and not df_recruiters.empty:
             total_row[col] = df_recruiters[col].sum()
             avg_row[col] = round(df_recruiters[col].mean(), 1)
     
-    # Конверсии - вычисляем от итогов
     total_invited = total_row.get('Кол-во направленных', 0)
     total_worked_invited = total_row.get('Вышло из приглашенных', 0)
     total_worked_done = total_row.get('Вышедшие (с дошедшими)', 0)
@@ -797,7 +743,6 @@ if df_recruiters is not None and not df_recruiters.empty:
         f"{(total_worked_done / total_responses * 100).round(1)}%" if total_responses > 0 else "0%"
     )
     
-    # Средние для конверсий (среднее по строкам)
     for col in ['Конверсия из пригл. в вышедших из приглашенных, %', 
                 'Конверсия из приглашенных в вышедших с дошедшими, %',
                 'Конверсия из откликов в вышедших, %']:
@@ -805,18 +750,15 @@ if df_recruiters is not None and not df_recruiters.empty:
             vals = df_recruiters[col].str.replace('%', '').astype(float)
             avg_row[col] = f"{round(vals.mean(), 1)}%"
     
-    # Добавляем строку "Итого (включая скрытых)" если есть данные all
     if df_recruiters_all is not None and not df_recruiters_all.empty:
         total_all_row = {'Рекрутер': 'Итого (включая скрытых)'}
         for col in ['Кол-во откликов', 'Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)']:
             if col in df_recruiters_all.columns:
                 total_all_row[col] = df_recruiters_all[col].sum()
-        # Конверсии от итогов всех
         total_invited_all = total_all_row.get('Кол-во направленных', 0)
         total_worked_invited_all = total_all_row.get('Вышло из приглашенных', 0)
         total_worked_done_all = total_all_row.get('Вышедшие (с дошедшими)', 0)
         total_responses_all = total_all_row.get('Кол-во откликов', 0)
-        
         total_all_row['Конверсия из пригл. в вышедших из приглашенных, %'] = (
             f"{(total_worked_invited_all / total_invited_all * 100).round(1)}%" if total_invited_all > 0 else "0%"
         )
@@ -826,13 +768,10 @@ if df_recruiters is not None and not df_recruiters.empty:
         total_all_row['Конверсия из откликов в вышедших, %'] = (
             f"{(total_worked_done_all / total_responses_all * 100).round(1)}%" if total_responses_all > 0 else "0%"
         )
-        # Добавляем в DataFrame
         df_recruiters = pd.concat([df_recruiters, pd.DataFrame([total_all_row])], ignore_index=True)
     
-    # Добавляем итоговую и среднюю строки
     df_recruiters = pd.concat([df_recruiters, pd.DataFrame([total_row]), pd.DataFrame([avg_row])], ignore_index=True)
     
-    # Убираем дублирование колонок с конверсией, если они есть
     display_cols = ['Рекрутер']
     col_config = {}
     for col in ['Кол-во откликов', 'Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)',
@@ -1025,7 +964,6 @@ def get_project_data(df_main_f, df_kpi_f):
 project_data = get_project_data(df_main_filtered, df_kpi_filtered)
 
 if not project_data.empty and project_data['Кол-во приглашенных'].sum() > 0:
-    # Отображаем таблицу без итоговых строк
     st.dataframe(
         project_data,
         use_container_width=True,
@@ -1038,28 +976,6 @@ if not project_data.empty and project_data['Кол-во приглашенных
             "Конв. из приглашенных в вышедших с дошедшими, %": st.column_config.TextColumn("Конв. из приглашенных в вышедших с дошедшими, %", width="auto"),
         }
     )
-    
-    # ---- Горизонтальная диаграмма по вышедшим (с дошедшими) по проектам ----
-    if 'Кол-во вышедших (с дошедшими)' in project_data.columns and project_data['Кол-во вышедших (с дошедшими)'].sum() > 0:
-        df_proj_worked = project_data[project_data['Кол-во вышедших (с дошедшими)'] > 0].copy()
-        df_proj_worked = df_proj_worked.sort_values('Кол-во вышедших (с дошедшими)', ascending=False)
-        
-        if not df_proj_worked.empty:
-            fig_worked_proj = px.bar(
-                df_proj_worked,
-                x='Кол-во вышедших (с дошедшими)',
-                y='Проект',
-                orientation='h',
-                title="Количество вышедших (с дошедшими) по проектам",
-                labels={'Кол-во вышедших (с дошедшими)': 'Кол-во вышедших (с дошедшими)', 'Проект': ''},
-                text='Кол-во вышедших (с дошедшими)',
-                color='Кол-во вышедших (с дошедшими)',
-                color_continuous_scale='Greens',
-                height=500
-            )
-            fig_worked_proj.update_traces(textposition='outside')
-            fig_worked_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
-            st.plotly_chart(fig_worked_proj, use_container_width=True)
 else:
     st.info("Нет данных по проектам для вышедших кандидатов.")
 
@@ -1142,13 +1058,11 @@ if city_data:
         f"{(total_row.get('Кол-во вышедших', 0) / total_row.get('Кол-во приглашенных', 1) * 100).round(1)}%"
     ) if total_row.get('Кол-во приглашенных', 0) > 0 else '0%'
     
-    # Средние для конверсий
     vals_conv = df_city['Конверсия из направленных в вышедших, %'].str.replace('%', '').astype(float)
     avg_row['Конверсия из направленных в вышедших, %'] = f"{round(vals_conv.mean(), 1)}%"
     
     df_city = pd.concat([df_city, pd.DataFrame([total_row]), pd.DataFrame([avg_row])], ignore_index=True)
     
-    # Добавляем "Итого (включая скрытых)"
     if city_data_all:
         total_all_row = {'Город': 'Итого (включая скрытых)'}
         df_city_all = pd.DataFrame.from_dict(city_data_all, orient='index').reset_index()
@@ -1242,36 +1156,55 @@ if df_kpi_filtered is not None:
                 "% от всех": st.column_config.TextColumn("% от всех", width="auto"),
             }
         )
-        
-        # ---- Круговая диаграмма по вышедшим (с дошедшими) по источникам ----
-        st.subheader("📊 Распределение вышедших (с дошедшими) по источникам")
-        df_pie = df_kpi_filtered.groupby('Источник ОМПП')['Телефон гигера'].nunique().reset_index()
-        df_pie.columns = ['Источник', 'Кол-во']
-        df_pie = df_pie[df_pie['Кол-во'] > 0]
-        
-        if not df_pie.empty:
-            fig_pie = px.pie(
-                df_pie,
-                values='Кол-во',
-                names='Источник',
-                title='Распределение вышедших (с дошедшими) по источникам',
-                hover_data={'Кол-во': True, 'Источник': True},
-                labels={'Источник': 'Источник', 'Кол-во': 'Кол-во вышедших'}
-            )
-            fig_pie.update_traces(
-                textposition='inside',
-                textinfo='percent+label',
-                hovertemplate='<b>%{label}</b><br>Кол-во: %{value}<br>Доля: %{percent}'
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
-        else:
-            st.info("Нет данных для круговой диаграммы по источникам.")
+
+# ---- Круговая диаграмма по источникам (вышедшие с дошедшими) ----
+if df_kpi_filtered is not None and not df_kpi_filtered.empty:
+    st.subheader("📊 Распределение вышедших (с дошедшими) по источникам")
+    pie_data = df_kpi_filtered.groupby('Источник ОМПП')['Телефон гигера'].nunique().reset_index()
+    pie_data.columns = ['Источник', 'Кол-во']
+    if not pie_data.empty:
+        fig_pie = px.pie(
+            pie_data,
+            values='Кол-во',
+            names='Источник',
+            title='Доля вышедших по источникам',
+            hover_data={'Кол-во': True},
+            labels={'Кол-во': 'Кол-во вышедших'}
+        )
+        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig_pie, use_container_width=True)
+        st.markdown("---")
+
+# ---- Горизонтальная линейчатая диаграмма "Вышедшие (с дошедшими) по проектам" ----
+if 'project_data' in locals() and project_data is not None and not project_data.empty:
+    st.subheader("📊 Вышедшие (с дошедшими) по проектам")
+    # Берем только проекты, у которых есть вышедшие с дошедшими > 0
+    proj_done = project_data[project_data['Кол-во вышедших (с дошедшими)'] > 0].copy()
+    if not proj_done.empty:
+        proj_done = proj_done.sort_values('Кол-во вышедших (с дошедшими)', ascending=False)
+        fig_proj_done = px.bar(
+            proj_done,
+            x='Кол-во вышедших (с дошедшими)',
+            y='Проект',
+            orientation='h',
+            title='Количество вышедших (с дошедшими) по проектам',
+            labels={'Кол-во вышедших (с дошедшими)': 'Кол-во вышедших', 'Проект': ''},
+            text='Кол-во вышедших (с дошедшими)',
+            color='Кол-во вышедших (с дошедшими)',
+            color_continuous_scale='Teal',
+            height=500
+        )
+        fig_proj_done.update_traces(textposition='outside')
+        fig_proj_done.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+        st.plotly_chart(fig_proj_done, use_container_width=True)
+        st.markdown("---")
+    else:
+        st.info("Нет данных по проектам для вышедших с дошедшими.")
 
 # ---- 7. Блок: Обработка откликов (таблица) ----
 if merged_resp is not None:
     st.subheader("📋 Обработка откликов")
     
-    # Добавляем итоговые строки
     df_resp_display = merged_resp.copy()
     total_row = {'Рекрутер': 'Итого (по выбранным)'}
     avg_row = {'Рекрутер': 'Среднее (по выбранным)'}
@@ -1280,7 +1213,6 @@ if merged_resp is not None:
             total_row[col] = df_resp_display[col].sum()
             avg_row[col] = round(df_resp_display[col].mean(), 1)
     
-    # Конверсии от итогов
     total_resp = total_row.get('Кол-во откликов', 0)
     total_reg = total_row.get('Кол-во регистраций', 0)
     total_inv = total_row.get('Кол-во направленных из откликов', 0)
@@ -1290,7 +1222,6 @@ if merged_resp is not None:
     total_row['Конв. направл->вышед, %'] = f"{(total_worked / total_inv * 100).round(1)}%" if total_inv > 0 else "0%"
     total_row['Конв. отклик->вышед, %'] = f"{(total_worked / total_resp * 100).round(1)}%" if total_resp > 0 else "0%"
     
-    # Средние для конверсий
     for col in ['Конв. отклик->регистр, %', 'Конв. регистр->направл, %', 'Конв. направл->вышед, %', 'Конв. отклик->вышед, %']:
         if col in df_resp_display.columns:
             vals = df_resp_display[col].str.replace('%', '').astype(float)
@@ -1298,7 +1229,6 @@ if merged_resp is not None:
     
     df_resp_display = pd.concat([df_resp_display, pd.DataFrame([total_row]), pd.DataFrame([avg_row])], ignore_index=True)
     
-    # Добавляем "Итого (включая скрытых)"
     if merged_resp_all is not None:
         total_all_row = {'Рекрутер': 'Итого (включая скрытых)'}
         for col in ['Кол-во откликов', 'Кол-во регистраций', 'Кол-во направленных из откликов', 'Вышедшие из откликов']:
@@ -1373,7 +1303,6 @@ if df_diagram is not None:
             df_chart['Месяц'] = df_chart['Дата'].dt.to_period('M').astype(str)
             monthly_avg = df_chart.groupby('Месяц')[['В течение 15 минут', 'Менее часа']].mean().round(1).reset_index()
 
-            # Общее среднее за период
             overall_avg = df_chart[['В течение 15 минут', 'Менее часа']].mean().round(1)
             overall_row = {
                 'Месяц': 'Среднее за период',
