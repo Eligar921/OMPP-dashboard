@@ -25,6 +25,7 @@ PROJECT_ALIASES = {
     'бубль гум ': 'Бубль-Гум',
     'бубльгум ': 'Бубль-Гум',
     'СПАР': 'Спар',
+    'СПАР ': 'Спар',
 }
 
 def normalize_project(project_name):
