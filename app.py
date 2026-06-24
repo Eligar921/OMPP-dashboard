@@ -753,7 +753,7 @@ if df_main_filtered is not None:
     if df_worked_main.empty or 'Проект первой подтвержденной смены' not in df_worked_main.columns:
         main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
     else:
-        # Приглашенные по проектам (все кандидаты)
+        # Приглашенные по проектам (все кандидаты) – нормализуем названия
         df_projects_all = df_main_filtered.copy()
         if 'Желаемые проекты (Клиент)' in df_projects_all.columns:
             df_projects_all['Проект'] = df_projects_all.apply(
@@ -763,12 +763,15 @@ if df_main_filtered is not None:
         else:
             df_projects_all['Проект'] = df_projects_all['Желаемые проекты (Группа)'].apply(normalize_project)
         
+        # Дополнительно удаляем лишние пробелы
+        df_projects_all['Проект'] = df_projects_all['Проект'].astype(str).str.strip()
         df_projects_all = df_projects_all[df_projects_all['Проект'].notna() & (df_projects_all['Проект'] != '')]
         invited_counts = df_projects_all.groupby('Проект')['Телефон'].nunique().reset_index()
         invited_counts.columns = ['Проект', 'Кол-во приглашенных']
         
-        # Вышедшие из приглашенных
+        # Вышедшие из приглашенных – также нормализуем
         df_worked_main['Проект'] = df_worked_main['Проект первой подтвержденной смены'].apply(normalize_project)
+        df_worked_main['Проект'] = df_worked_main['Проект'].astype(str).str.strip()
         worked_main_counts = df_worked_main.groupby('Проект')['Телефон'].nunique().reset_index()
         worked_main_counts.columns = ['Проект', 'Кол-во вышедших (из приглашенных)']
         
@@ -778,11 +781,12 @@ if df_main_filtered is not None:
 else:
     main_project_data = pd.DataFrame(columns=['Проект', 'Кол-во приглашенных', 'Кол-во вышедших (из приглашенных)'])
 
-# Данные из KPI (вышедшие с дошедшими)
+# Данные из KPI (вышедшие с дошедшими) – нормализуем названия
 if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
     kpi_project_counts = df_kpi_filtered.groupby('Клиент')['Телефон гигера'].nunique().reset_index()
     kpi_project_counts.columns = ['Проект', 'Кол-во вышедших (с дошедшими)']
     kpi_project_counts['Проект'] = kpi_project_counts['Проект'].apply(normalize_project)
+    kpi_project_counts['Проект'] = kpi_project_counts['Проект'].astype(str).str.strip()
 else:
     kpi_project_counts = pd.DataFrame(columns=['Проект', 'Кол-во вышедших (с дошедшими)'])
 
