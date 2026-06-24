@@ -280,15 +280,24 @@ if df_responses is not None:
         default_start = min_date_resp
         default_end = max_date_resp
         if date_range_main and len(date_range_main) == 2:
-            default_start, default_end = date_range_main
+            if date_range_main[0] is not None and date_range_main[1] is not None:
+                default_start = date_range_main[0]
+                default_end = date_range_main[1]
         elif date_range_kpi and len(date_range_kpi) == 2:
-            default_start, default_end = date_range_kpi
+            if date_range_kpi[0] is not None and date_range_kpi[1] is not None:
+                default_start = date_range_kpi[0]
+                default_end = date_range_kpi[1]
         
         # Приводим к date
         if isinstance(default_start, datetime):
             default_start = default_start.date()
         if isinstance(default_end, datetime):
             default_end = default_end.date()
+        
+        # Убедимся, что значения не None
+        if default_start is None or default_end is None:
+            default_start = min_date_resp
+            default_end = max_date_resp
         
         st.sidebar.subheader("Фильтр по дате отклика")
         date_range_resp = st.sidebar.date_input(
