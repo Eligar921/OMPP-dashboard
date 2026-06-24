@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import re
-from datetime import datetime
+from datetime import datetime, date
 
 st.set_page_config(page_title="ОМПП Дашборд", layout="wide")
 st.title("📊 Дашборд ОМПП")
@@ -273,40 +273,54 @@ if df_responses is not None:
     col_date_resp = find_column(df_responses, ['дата отклика', 'отклика'])
     if col_date_resp is not None:
         df_responses['Дата отклика'] = pd.to_datetime(df_responses[col_date_resp], errors='coerce')
-        min_date_resp = df_responses['Дата отклика'].min().date()
-        max_date_resp = df_responses['Дата отклика'].max().date()
-        
-        # Определяем значение по умолчанию: если задан date_range_main, то берём его, иначе date_range_kpi
-        default_start = min_date_resp
-        default_end = max_date_resp
-        if date_range_main and len(date_range_main) == 2:
-            if date_range_main[0] is not None and date_range_main[1] is not None:
-                default_start = date_range_main[0]
-                default_end = date_range_main[1]
-        elif date_range_kpi and len(date_range_kpi) == 2:
-            if date_range_kpi[0] is not None and date_range_kpi[1] is not None:
-                default_start = date_range_kpi[0]
-                default_end = date_range_kpi[1]
-        
-        # Приводим к date
-        if isinstance(default_start, datetime):
-            default_start = default_start.date()
-        if isinstance(default_end, datetime):
-            default_end = default_end.date()
-        
-        # Убедимся, что значения не None
-        if default_start is None or default_end is None:
+        df_responses = df_responses[df_responses['Дата отклика'].notna()]
+        if not df_responses.empty:
+            min_date_resp = df_responses['Дата отклика'].min().date()
+            max_date_resp = df_responses['Дата отклика'].max().date()
+            
+            # Определяем значения по умолчанию
             default_start = min_date_resp
             default_end = max_date_resp
-        
-        st.sidebar.subheader("Фильтр по дате отклика")
-        date_range_resp = st.sidebar.date_input(
-            "Диапазон дат отклика",
-            value=(default_start, default_end),
-            min_value=min_date_resp,
-            max_value=max_date_resp,
-            key="date_range_resp"
-        )
+            
+            if date_range_main and len(date_range_main) == 2:
+                if date_range_main[0] is not None and date_range_main[1] is not None:
+                    default_start = date_range_main[0]
+                    default_end = date_range_main[1]
+            elif date_range_kpi and len(date_range_kpi) == 2:
+                if date_range_kpi[0] is not None and date_range_kpi[1] is not None:
+                    default_start = date_range_kpi[0]
+                    default_end = date_range_kpi[1]
+            
+            # Приводим к date
+            if not isinstance(default_start, date):
+                try:
+                    default_start = pd.to_datetime(default_start).date()
+                except:
+                    default_start = min_date_resp
+            if not isinstance(default_end, date):
+                try:
+                    default_end = pd.to_datetime(default_end).date()
+                except:
+                    default_end = max_date_resp
+            
+            # Убеждаемся, что значения не None и start <= end
+            if default_start is None or default_end is None:
+                default_start = min_date_resp
+                default_end = max_date_resp
+            if default_start > default_end:
+                default_start, default_end = default_end, default_start
+            
+            st.sidebar.subheader("Фильтр по дате отклика")
+            date_range_resp = st.sidebar.date_input(
+                "Диапазон дат отклика",
+                value=(default_start, default_end),
+                min_value=min_date_resp,
+                max_value=max_date_resp,
+                key="date_range_resp"
+            )
+        else:
+            date_range_resp = None
+            st.sidebar.warning("Нет данных с корректной датой отклика.")
     else:
         date_range_resp = None
         st.sidebar.warning("В листе 'Отклики общая' не найден столбец с датой отклика.")
