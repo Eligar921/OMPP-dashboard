@@ -46,7 +46,6 @@ if uploaded_file is not None:
     df_main = pd.read_excel(uploaded_file, sheet_name=0)
     df_main.columns = df_main.columns.str.strip()
 
-    # Поиск столбцов для основного отчета
     col_date_direction = find_column(df_main, ['дата направления', 'направления на координатора'])
     col_phone = find_column(df_main, ['телефон'])
     col_recruiter = find_column(df_main, ['рекрутер'])
@@ -84,7 +83,6 @@ if uploaded_file is not None:
         st.error("❌ В основном файле не найден ни столбец 'Статус координатора', ни 'Статус лида'")
         st.stop()
 
-    # Переименование
     rename_map = {
         col_date_direction: 'Дата направления',
         col_phone: 'Телефон',
@@ -112,11 +110,9 @@ if uploaded_file is not None:
     df_main = df_main.rename(columns=rename_map)
     df_main = df_main.loc[:, ~df_main.columns.duplicated()]
 
-    # Преобразование дат
     df_main['Дата направления'] = pd.to_datetime(df_main['Дата направления'], errors='coerce')
     df_main['Дата последнего звонка'] = pd.to_datetime(df_main['Дата последнего звонка'], errors='coerce')
 
-    # Исключаем пустые источники
     df_main['Источник ОМПП'] = df_main['Источник ОМПП'].astype(str).str.strip()
     df_main = df_main[df_main['Источник ОМПП'].notna() & (df_main['Источник ОМПП'] != '')]
 
@@ -125,7 +121,6 @@ if uploaded_file_kpi is not None:
     df_kpi = pd.read_excel(uploaded_file_kpi, sheet_name=0)
     df_kpi.columns = df_kpi.columns.str.strip()
 
-    # Поиск столбцов для KPI
     col_kpi_phone = find_column(df_kpi, ['телефон гигера', 'телефон'])
     col_kpi_recruiter = find_column(df_kpi, ['рекрутер'])
     col_kpi_source = find_column(df_kpi, ['источник омпп'])
@@ -152,7 +147,6 @@ if uploaded_file_kpi is not None:
         st.error("❌ В файле KPI не найден столбец с датой последнего звонка до первого статуса")
         st.stop()
 
-    # Переименование
     rename_kpi = {
         col_kpi_phone: 'Телефон гигера',
         col_kpi_recruiter: 'Рекрутер',
@@ -163,18 +157,15 @@ if uploaded_file_kpi is not None:
     df_kpi = df_kpi.rename(columns=rename_kpi)
     df_kpi = df_kpi.loc[:, ~df_kpi.columns.duplicated()]
 
-    # Преобразование дат
     df_kpi['Дата первой смены'] = pd.to_datetime(df_kpi['Дата первой смены'], errors='coerce')
     df_kpi['Дата последнего звонка'] = pd.to_datetime(df_kpi['Дата последнего звонка'], errors='coerce')
 
-    # Исключаем пустые источники
     df_kpi['Источник ОМПП'] = df_kpi['Источник ОМПП'].astype(str).str.strip()
     df_kpi = df_kpi[df_kpi['Источник ОМПП'].notna() & (df_kpi['Источник ОМПП'] != '')]
 
 # ---- Боковая панель с фильтрами ----
 st.sidebar.header("Фильтры")
 
-# Общий фильтр по источнику ОМПП (если есть хотя бы один загруженный файл)
 all_sources = []
 if df_main is not None:
     all_sources.extend(df_main['Источник ОМПП'].unique())
@@ -188,7 +179,6 @@ else:
     selected_sources = []
     st.sidebar.warning("Загрузите хотя бы один файл для выбора источников.")
 
-# Фильтр по дате направления (для основного отчета)
 if df_main is not None:
     st.sidebar.subheader("Фильтр по дате направления")
     min_date_main = df_main['Дата направления'].min().date()
@@ -203,7 +193,6 @@ if df_main is not None:
 else:
     date_range_main = None
 
-# Фильтр по дате первой смены (для KPI)
 if df_kpi is not None:
     st.sidebar.subheader("Фильтр по дате первой смены")
     min_date_kpi = df_kpi['Дата первой смены'].min().date()
@@ -222,7 +211,6 @@ else:
 if df_main is not None and selected_sources:
     df_main_filtered = df_main[df_main['Источник ОМПП'].isin(selected_sources)]
 
-    # Применяем фильтр по дате направления
     if date_range_main and len(date_range_main) == 2:
         start_date, end_date = date_range_main
         df_main_filtered = df_main_filtered[
@@ -230,7 +218,6 @@ if df_main is not None and selected_sources:
             (df_main_filtered['Дата направления'].dt.date <= end_date)
         ]
 
-    # Автофильтр по дате последнего звонка (текущий или предыдущий месяц от даты направления)
     df_main_filtered['год_напр'] = df_main_filtered['Дата направления'].dt.year
     df_main_filtered['мес_напр'] = df_main_filtered['Дата направления'].dt.month
     df_main_filtered['год_зв'] = df_main_filtered['Дата последнего звонка'].dt.year
@@ -250,7 +237,6 @@ else:
 if df_kpi is not None and selected_sources:
     df_kpi_filtered = df_kpi[df_kpi['Источник ОМПП'].isin(selected_sources)]
 
-    # Применяем фильтр по дате первой смены
     if date_range_kpi and len(date_range_kpi) == 2:
         start_date_kpi, end_date_kpi = date_range_kpi
         df_kpi_filtered = df_kpi_filtered[
@@ -258,7 +244,6 @@ if df_kpi is not None and selected_sources:
             (df_kpi_filtered['Дата первой смены'].dt.date <= end_date_kpi)
         ]
 
-    # Автофильтр по дате последнего звонка (текущий или предыдущий месяц от даты первой смены)
     df_kpi_filtered['год_смены'] = df_kpi_filtered['Дата первой смены'].dt.year
     df_kpi_filtered['мес_смены'] = df_kpi_filtered['Дата первой смены'].dt.month
     df_kpi_filtered['год_зв'] = df_kpi_filtered['Дата последнего звонка'].dt.year
@@ -274,39 +259,93 @@ if df_kpi is not None and selected_sources:
 else:
     df_kpi_filtered = None
 
-# ---- ОТОБРАЖЕНИЕ БЛОКОВ ----
+# ---- 1. Объединённая таблица рекрутеров (из обоих отчетов) ----
+recruiter_data = {}
 
 if df_main_filtered is not None:
-    # ---- 1. Таблица рекрутеров (основной отчет) ----
-    recruiter_counts = df_main_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
-    recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
+    main_counts = df_main_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+    main_counts.columns = ['Рекрутер', 'Кол-во направленных']
 
-    # Считаем количество вышедших (по дате первой подтвержденной смены)
     if 'Дата первой подтвержденной смены за всю жизнь' in df_main_filtered.columns:
         df_with_shift = df_main_filtered[df_main_filtered['Дата первой подтвержденной смены за всю жизнь'].notna()]
-        worked_counts = df_with_shift.groupby('Рекрутер')['Телефон'].nunique().reset_index()
-        worked_counts.columns = ['Рекрутер', 'Вышло из приглашенных']
-        recruiter_counts = recruiter_counts.merge(worked_counts, on='Рекрутер', how='left').fillna(0)
-        recruiter_counts['Вышло из приглашенных'] = recruiter_counts['Вышло из приглашенных'].astype(int)
+        worked_main = df_with_shift.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+        worked_main.columns = ['Рекрутер', 'Вышло из приглашенных']
+        main_counts = main_counts.merge(worked_main, on='Рекрутер', how='left').fillna(0)
+        main_counts['Вышло из приглашенных'] = main_counts['Вышло из приглашенных'].astype(int)
     else:
-        recruiter_counts['Вышло из приглашенных'] = 0
+        main_counts['Вышло из приглашенных'] = 0
 
-    recruiter_counts['Конверсия, %'] = (recruiter_counts['Вышло из приглашенных'] / recruiter_counts['Кол-во кандидатов'] * 100).round(1)
-    recruiter_counts['Конверсия, %'] = recruiter_counts['Конверсия, %'].fillna(0).astype(str) + '%'
-    recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
+    for _, row in main_counts.iterrows():
+        recruiter = row['Рекрутер']
+        if recruiter not in recruiter_data:
+            recruiter_data[recruiter] = {}
+        recruiter_data[recruiter]['Кол-во направленных'] = row['Кол-во направленных']
+        recruiter_data[recruiter]['Вышло из приглашенных'] = row['Вышло из приглашенных']
+
+if df_kpi_filtered is not None:
+    kpi_counts = df_kpi_filtered.groupby('Рекрутер')['Телефон гигера'].nunique().reset_index()
+    kpi_counts.columns = ['Рекрутер', 'Вышедшие (с дошедшими)']
+    for _, row in kpi_counts.iterrows():
+        recruiter = row['Рекрутер']
+        if recruiter not in recruiter_data:
+            recruiter_data[recruiter] = {}
+        recruiter_data[recruiter]['Вышедшие (с дошедшими)'] = row['Вышедшие (с дошедшими)']
+
+if recruiter_data:
+    df_recruiters = pd.DataFrame.from_dict(recruiter_data, orient='index').reset_index()
+    df_recruiters.rename(columns={'index': 'Рекрутер'}, inplace=True)
+
+    numeric_cols = ['Кол-во направленных', 'Вышло из приглашенных', 'Вышедшие (с дошедшими)']
+    for col in numeric_cols:
+        if col not in df_recruiters.columns:
+            df_recruiters[col] = 0
+        df_recruiters[col] = df_recruiters[col].fillna(0).astype(int)
+
+    df_recruiters['Конверсия из пригл. в вышедших из приглашенных, %'] = (
+        df_recruiters['Вышло из приглашенных'] / df_recruiters['Кол-во направленных'] * 100
+    ).round(1).fillna(0).astype(str) + '%'
+
+    df_recruiters['Конверсия из приглашенных в вышедших с дошедшими, %'] = (
+        df_recruiters['Вышедшие (с дошедшими)'] / df_recruiters['Кол-во направленных'] * 100
+    ).round(1).fillna(0).astype(str) + '%'
+
+    if 'Кол-во направленных' in df_recruiters.columns and df_recruiters['Кол-во направленных'].sum() > 0:
+        sort_col = 'Кол-во направленных'
+    else:
+        sort_col = 'Вышедшие (с дошедшими)'
+    df_recruiters = df_recruiters.sort_values(sort_col, ascending=False)
+
+    display_cols = ['Рекрутер']
+    col_config = {}
+    if 'Кол-во направленных' in df_recruiters.columns and df_recruiters['Кол-во направленных'].sum() > 0:
+        display_cols.append('Кол-во направленных')
+        col_config['Кол-во направленных'] = st.column_config.NumberColumn("Кол-во направленных", format="%d")
+    if 'Вышло из приглашенных' in df_recruiters.columns and df_recruiters['Вышло из приглашенных'].sum() > 0:
+        display_cols.append('Вышло из приглашенных')
+        col_config['Вышло из приглашенных'] = st.column_config.NumberColumn("Вышло из приглашенных", format="%d")
+    if 'Конверсия из пригл. в вышедших из приглашенных, %' in df_recruiters.columns:
+        if df_recruiters['Кол-во направленных'].sum() > 0 and df_recruiters['Вышло из приглашенных'].sum() > 0:
+            display_cols.append('Конверсия из пригл. в вышедших из приглашенных, %')
+            col_config['Конверсия из пригл. в вышедших из приглашенных, %'] = st.column_config.TextColumn("Конверсия из пригл. в вышедших из приглашенных, %")
+    if 'Вышедшие (с дошедшими)' in df_recruiters.columns and df_recruiters['Вышедшие (с дошедшими)'].sum() > 0:
+        display_cols.append('Вышедшие (с дошедшими)')
+        col_config['Вышедшие (с дошедшими)'] = st.column_config.NumberColumn("Вышедшие (с дошедшими)", format="%d")
+    if 'Конверсия из приглашенных в вышедших с дошедшими, %' in df_recruiters.columns:
+        if df_recruiters['Кол-во направленных'].sum() > 0 and df_recruiters['Вышедшие (с дошедшими)'].sum() > 0:
+            display_cols.append('Конверсия из приглашенных в вышедших с дошедшими, %')
+            col_config['Конверсия из приглашенных в вышедших с дошедшими, %'] = st.column_config.TextColumn("Конверсия из приглашенных в вышедших с дошедшими, %")
 
     st.subheader("📋 Количество направленных кандидатов по рекрутерам")
     st.dataframe(
-        recruiter_counts,
+        df_recruiters[display_cols],
         use_container_width=True,
-        column_config={
-            "Рекрутер": st.column_config.TextColumn("Рекрутер", width="medium"),
-            "Кол-во кандидатов": st.column_config.NumberColumn("Кол-во кандидатов", width="small"),
-            "Вышло из приглашенных": st.column_config.NumberColumn("Вышло из приглашенных", width="small"),
-            "Конверсия, %": st.column_config.TextColumn("Конверсия, %", width="small"),
-        }
+        column_config=col_config
     )
+else:
+    st.info("Нет данных для отображения. Загрузите хотя бы один отчет.")
 
+# ---- Остальные блоки (графики, проекты, города) ----
+if df_main_filtered is not None:
     # ---- 2. График по источникам ----
     st.subheader("📊 Кол-во направленных кандидатов по источникам")
     available_sources = sorted(df_main_filtered['Источник ОМПП'].unique())
@@ -339,7 +378,6 @@ if df_main_filtered is not None:
             fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
 
-        # Детальная таблица по источникам
         st.subheader("📋 Детальная разбивка по источникам для каждого рекрутера")
         detail = df_main_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон'].nunique().reset_index()
         detail.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
@@ -543,29 +581,7 @@ if df_main_filtered is not None:
     else:
         st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Город первой подтвержденной смены за всю жизнь'.")
 
-# ---- НОВЫЙ БЛОК: Вышедшие по рекрутерам (с дошедшими) из KPI ----
-if df_kpi_filtered is not None and not df_kpi_filtered.empty:
-    st.subheader("📊 Вышедшие по рекрутерам (с дошедшими)")
-
-    # Группировка по рекрутеру, подсчет уникальных телефонов гигеров
-    kpi_counts = df_kpi_filtered.groupby('Рекрутер')['Телефон гигера'].nunique().reset_index()
-    kpi_counts.columns = ['Рекрутер', 'Кол-во вышедших гигеров']
-    kpi_counts = kpi_counts.sort_values('Кол-во вышедших гигеров', ascending=False)
-
-    st.dataframe(
-        kpi_counts,
-        use_container_width=True,
-        column_config={
-            "Рекрутер": st.column_config.TextColumn("Рекрутер", width="medium"),
-            "Кол-во вышедших гигеров": st.column_config.NumberColumn("Кол-во вышедших гигеров", format="%d"),
-        }
-    )
-elif df_kpi is not None and df_kpi_filtered is not None and df_kpi_filtered.empty:
-    st.info("Нет данных по KPI после применения фильтров.")
-elif df_kpi is None:
-    st.info("Для отображения блока 'Вышедшие по рекрутерам' загрузите файл KPI.")
-
-# ---- Статистика в сайдбаре (для основного отчета) ----
+# ---- Статистика в сайдбаре ----
 if df_main_filtered is not None:
     st.sidebar.markdown("---")
     st.sidebar.write(f"🧾 Основной отчет: строк после фильтров: **{len(df_main_filtered)}**")
