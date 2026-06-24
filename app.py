@@ -69,6 +69,9 @@ if uploaded_file is not None:
 
     df = df.rename(columns=rename_map)
 
+    # Удаляем дублирующиеся названия столбцов
+    df = df.loc[:, ~df.columns.duplicated()]
+
     df['Дата направления'] = pd.to_datetime(df['Дата направления'], errors='coerce')
     df['Дата последнего звонка'] = pd.to_datetime(df['Дата последнего звонка'], errors='coerce')
 
@@ -226,47 +229,44 @@ if uploaded_file is not None:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
     # ---- Приглашенные по городам (исправленный блок с .iloc) ----
-    if 'Город' in df_filtered.columns:
-        st.subheader("🏙️ Приглашенные по городам")
-        city_mask = (df_filtered['Город'].notna() & (df_filtered['Город'] != '')).values
-        if city_mask.any():
-            city_data = df_filtered.iloc[city_mask].copy()
-            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
-            city_counts.columns = ['Город', 'Кол-во']
-            total_candidates = df_filtered['Телефон'].nunique()
-            city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1)
-            city_counts['% от всех'] = city_counts['% от всех'].astype(str) + '%'
-            city_counts = city_counts.sort_values('Кол-во', ascending=False)
+   # ---- Приглашенные по городам ----
+if 'Город' in df_filtered.columns:
 
-            st.dataframe(
-                city_counts,
-                use_container_width=True,
-                column_config={
-                    "Город": "Город",
-                    "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
-                    "% от всех": st.column_config.TextColumn("% от всех"),
-                }
-            )
+    st.subheader("🏙️ Приглашенные по городам")
 
-            fig_city = px.bar(
-                city_counts,
-                x='Кол-во',
-                y='Город',
-                orientation='h',
-                title="Количество направленных кандидатов по городам",
-                labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
-                text='Кол-во',
-                color='Кол-во',
-                color_continuous_scale='Viridis',
-                height=700
-            )
-            fig_city.update_traces(textposition='outside')
-            fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
-            st.plotly_chart(fig_city, use_container_width=True)
-        else:
-            st.info("Нет данных по городам.")
+    # если вдруг осталось несколько столбцов "Город"
+    city_series = df_filtered['Город']
+
+    if isinstance(city_series, pd.DataFrame):
+        city_series = city_series.iloc[:, 0]
+
+    city_data = df_filtered.copy()
+    city_data['Город'] = city_series
+
+    city_data = city_data[
+        city_data['Город'].notna() &
+        (city_data['Город'].astype(str).str.strip() != '')
+    ]
+
+    if not city_data.empty:
+
+        city_counts = (
+            city_data.groupby('Город')['Телефон']
+            .nunique()
+            .reset_index(name='Кол-во')
+            .sort_values('Кол-во', ascending=False)
+        )
+
+        total_candidates = df_filtered['Телефон'].nunique()
+
+        city_counts['% от всех'] = (
+            city_counts['Кол-во'] / total_candidates * 100
+        ).round(1).astype(str) + '%'
+
+        st.dataframe(city_counts, use_container_width=True)
+
     else:
-        st.info("Столбец 'Город' не найден, таблица городов пропущена.")
+        st.info("Нет данных по городам.")
 
     # ---- Статистика в сайдбаре ----
     st.sidebar.markdown("---")
