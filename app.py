@@ -404,13 +404,11 @@ if df_responses is not None:
     col_recr_resp = find_column(df_responses, ['рекрутер в crm', 'рекрутер в срм'])
     if col_recr_resp is not None:
         all_recruiters.update(df_responses[col_recr_resp].dropna().unique())
-# Добавляем рекрутеров из файла звонков
-if df_calls is not None and 'Кто звонил' in df_calls.columns:
-    # Извлекаем имена из столбца (очищаем кавычки)
-    df_calls['Рекрутер'] = df_calls['Кто звонил'].astype(str).str.replace('"', '').str.strip()
-    # Оставляем только исходящие
-    df_calls_out = df_calls[df_calls['Тип вызова'] == 'Исходящий']
-    all_recruiters.update(df_calls_out['Рекрутер'].dropna().unique())
+# Добавляем рекрутеров из файла звонков (если он загружен и колонки найдены)
+if df_calls is not None:
+    col_who = find_column(df_calls, ['кто звонил', 'кто звонил', 'звонивший'])
+    if col_who is not None:
+        all_recruiters.update(df_calls[col_who].astype(str).str.replace('"', '').str.strip().dropna().unique())
 
 all_recruiters = sorted(all_recruiters)
 
@@ -534,18 +532,36 @@ if df_responses is not None:
     else:
         df_responses_filtered = df_responses_temp
 
-# ---- Обработка звонков: фильтрация по рекрутерам ----
+# ---- Обработка звонков: поиск колонок и фильтрация по рекрутерам ----
 df_calls_filtered = None
 if df_calls is not None:
-    # Извлекаем имя рекрутера из столбца 'Кто звонил' (очищаем кавычки)
-    df_calls['Рекрутер'] = df_calls['Кто звонил'].astype(str).str.replace('"', '').str.strip()
-    # Оставляем только исходящие
-    df_calls_out = df_calls[df_calls['Тип вызова'] == 'Исходящий'].copy()
-    # Применяем фильтр по рекрутерам
-    if selected_recruiters:
-        df_calls_filtered = df_calls_out[df_calls_out['Рекрутер'].isin(selected_recruiters)]
+    # Ищем нужные колонки
+    col_who = find_column(df_calls, ['кто звонил', 'кто звонил', 'звонивший'])
+    col_call_type = find_column(df_calls, ['тип вызова', 'тип звонка'])
+    col_duration = find_column(df_calls, ['длительность, сек', 'длительность', 'длительность сек'])
+
+    if col_who is None or col_call_type is None or col_duration is None:
+        st.warning("В файле звонков не найдены необходимые столбцы (Кто звонил, Тип вызова, Длительность, сек). Статистика звонков недоступна.")
     else:
-        df_calls_filtered = df_calls_out
+        # Переименовываем для удобства
+        rename_calls = {
+            col_who: 'Кто звонил',
+            col_call_type: 'Тип вызова',
+            col_duration: 'Длительность, сек'
+        }
+        df_calls = df_calls.rename(columns=rename_calls)
+        # Удаляем дублирующиеся колонки (если есть)
+        df_calls = df_calls.loc[:, ~df_calls.columns.duplicated()]
+
+        # Извлекаем имя рекрутера из столбца 'Кто звонил' (очищаем кавычки)
+        df_calls['Рекрутер'] = df_calls['Кто звонил'].astype(str).str.replace('"', '').str.strip()
+        # Оставляем только исходящие
+        df_calls_out = df_calls[df_calls['Тип вызова'] == 'Исходящий'].copy()
+        # Применяем фильтр по рекрутерам
+        if selected_recruiters:
+            df_calls_filtered = df_calls_out[df_calls_out['Рекрутер'].isin(selected_recruiters)]
+        else:
+            df_calls_filtered = df_calls_out
 
 # ---- Обработка откликов: таблица (будет выведена в конце) ----
 merged_resp = None
