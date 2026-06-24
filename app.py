@@ -743,62 +743,51 @@ def create_recruiter_df(data):
 df_recruiters = create_recruiter_df(recruiter_data)
 df_recruiters_all = create_recruiter_df(recruiter_data_all)
 
-# ---- Данные для лидерборда по звонкам (из CSV) ----
-best_avg_duration_recruiter = None
-best_avg_duration_value = None
-if df_calls_filtered is not None and not df_calls_filtered.empty:
-    avg_duration = df_calls_filtered.groupby('Рекрутер')['Длительность, сек'].mean().reset_index()
-    avg_duration.columns = ['Рекрутер', 'Средняя длительность']
-    if not avg_duration.empty:
-        max_row = avg_duration.loc[avg_duration['Средняя длительность'].idxmax()]
-        best_avg_duration_recruiter = max_row['Рекрутер']
-        best_avg_duration_value = round(max_row['Средняя длительность'], 1)
-
-# ---- Функция для построения LeaderBoard ----
-def build_leaderboard(df_recruiters, best_avg_duration_recruiter=None, best_avg_duration_value=None):
-    if df_recruiters is None or df_recruiters.empty:
-        rows = []
-        if best_avg_duration_recruiter is not None:
-            rows.append({
-                'Категория': 'Лучшая средняя длительность исходящих звонков',
-                'Рекрутер': best_avg_duration_recruiter,
-                'Значение': f"{best_avg_duration_value} сек"
-            })
-        return pd.DataFrame(rows)
-    
-    df_clean = df_recruiters[~df_recruiters['Рекрутер'].str.contains('Итого|Среднее', na=False)].copy()
-    
+# ---- Функция для построения LeaderBoard (теперь будет использоваться в конце) ----
+def build_leaderboard(df_recruiters, stats_df=None, best_avg_duration_recruiter=None, best_avg_duration_value=None):
+    """
+    Возвращает DataFrame с показателями лидерборда.
+    Если передан stats_df, добавляются строки по общему количеству звонков и входящим вызовам.
+    """
     rows = []
     
-    if 'Конверсия из откликов в вышедших, %' in df_clean.columns:
-        df_clean['conv_resp_to_worked'] = df_clean['Конверсия из откликов в вышедших, %'].str.replace('%', '').astype(float)
-        best_conv_resp = df_clean.loc[df_clean['conv_resp_to_worked'].idxmax()] if not df_clean.empty else None
-        if best_conv_resp is not None:
-            rows.append({
-                'Категория': 'Лучшая конверсия из отклика → вышедший (с дошедшими)',
-                'Рекрутер': best_conv_resp['Рекрутер'],
-                'Значение': f"{best_conv_resp['conv_resp_to_worked']:.1f}%"
-            })
+    # Если есть df_recruiters, берём из него первые три категории
+    if df_recruiters is not None and not df_recruiters.empty:
+        df_clean = df_recruiters[~df_recruiters['Рекрутер'].str.contains('Итого|Среднее', na=False)].copy()
+        
+        # 1. Лучшая конверсия из отклика в вышедшего (с дошедшими)
+        if 'Конверсия из откликов в вышедших, %' in df_clean.columns:
+            df_clean['conv_resp_to_worked'] = df_clean['Конверсия из откликов в вышедших, %'].str.replace('%', '').astype(float)
+            best_conv_resp = df_clean.loc[df_clean['conv_resp_to_worked'].idxmax()] if not df_clean.empty else None
+            if best_conv_resp is not None:
+                rows.append({
+                    'Категория': 'Лучшая конверсия из отклика → вышедший (с дошедшими)',
+                    'Рекрутер': best_conv_resp['Рекрутер'],
+                    'Значение': f"{best_conv_resp['conv_resp_to_worked']:.1f}%"
+                })
 
-    if 'Конверсия из пригл. в вышедших из приглашенных, %' in df_clean.columns:
-        df_clean['conv_inv_to_worked'] = df_clean['Конверсия из пригл. в вышедших из приглашенных, %'].str.replace('%', '').astype(float)
-        best_conv_inv = df_clean.loc[df_clean['conv_inv_to_worked'].idxmax()] if not df_clean.empty else None
-        if best_conv_inv is not None:
-            rows.append({
-                'Категория': 'Лучшая конверсия из приглашенного → вышедший (из приглашенных)',
-                'Рекрутер': best_conv_inv['Рекрутер'],
-                'Значение': f"{best_conv_inv['conv_inv_to_worked']:.1f}%"
-            })
+        # 2. Лучшая конверсия из приглашенного в вышедшего (из приглашенных)
+        if 'Конверсия из пригл. в вышедших из приглашенных, %' in df_clean.columns:
+            df_clean['conv_inv_to_worked'] = df_clean['Конверсия из пригл. в вышедших из приглашенных, %'].str.replace('%', '').astype(float)
+            best_conv_inv = df_clean.loc[df_clean['conv_inv_to_worked'].idxmax()] if not df_clean.empty else None
+            if best_conv_inv is not None:
+                rows.append({
+                    'Категория': 'Лучшая конверсия из приглашенного → вышедший (из приглашенных)',
+                    'Рекрутер': best_conv_inv['Рекрутер'],
+                    'Значение': f"{best_conv_inv['conv_inv_to_worked']:.1f}%"
+                })
 
-    if 'Кол-во откликов' in df_clean.columns:
-        most_responses = df_clean.loc[df_clean['Кол-во откликов'].idxmax()] if not df_clean.empty else None
-        if most_responses is not None:
-            rows.append({
-                'Категория': 'Больше всего откликов обработано',
-                'Рекрутер': most_responses['Рекрутер'],
-                'Значение': str(int(most_responses['Кол-во откликов']))
-            })
+        # 3. Больше всего откликов обработано
+        if 'Кол-во откликов' in df_clean.columns:
+            most_responses = df_clean.loc[df_clean['Кол-во откликов'].idxmax()] if not df_clean.empty else None
+            if most_responses is not None:
+                rows.append({
+                    'Категория': 'Больше всего откликов обработано',
+                    'Рекрутер': most_responses['Рекрутер'],
+                    'Значение': str(int(most_responses['Кол-во откликов']))
+                })
 
+    # 4. Лучшая средняя длительность исходящих звонков (из CSV)
     if best_avg_duration_recruiter is not None:
         rows.append({
             'Категория': 'Лучшая средняя длительность исходящих звонков',
@@ -806,20 +795,27 @@ def build_leaderboard(df_recruiters, best_avg_duration_recruiter=None, best_avg_
             'Значение': f"{best_avg_duration_value} сек"
         })
 
+    # 5. Лучший по общему количеству звонков (из stats_df)
+    if stats_df is not None and not stats_df.empty:
+        stats_clean = stats_df[~stats_df['Рекрутер'].str.contains('Итого|Среднее', na=False)].copy()
+        if 'Всего звонков' in stats_clean.columns and not stats_clean.empty:
+            max_total = stats_clean.loc[stats_clean['Всего звонков'].idxmax()]
+            rows.append({
+                'Категория': 'Лучший по общему количеству звонков',
+                'Рекрутер': max_total['Рекрутер'],
+                'Значение': str(int(max_total['Всего звонков']))
+            })
+        if 'Кол-во входящих' in stats_clean.columns and not stats_clean.empty:
+            max_incoming = stats_clean.loc[stats_clean['Кол-во входящих'].idxmax()]
+            rows.append({
+                'Категория': 'Лучший по количеству входящих вызовов',
+                'Рекрутер': max_incoming['Рекрутер'],
+                'Значение': str(int(max_incoming['Кол-во входящих']))
+            })
+
     return pd.DataFrame(rows)
 
-# ---- LeaderBoard ----
-if 'df_recruiters' in locals() and (df_recruiters is not None or best_avg_duration_recruiter is not None):
-    lb = build_leaderboard(df_recruiters, best_avg_duration_recruiter, best_avg_duration_value)
-    if not lb.empty:
-        st.subheader("🏆 Лидерборд")
-        cols = st.columns(4)
-        for i, (_, row) in enumerate(lb.iterrows()):
-            with cols[i % 4]:
-                st.metric(label=row['Категория'], value=row['Значение'], delta=row['Рекрутер'])
-        st.markdown("---")
-
-# ---- 1. Объединённая таблица рекрутеров (из обоих отчетов) ----
+# ---- Вывод таблицы рекрутеров (без лидерборда) ----
 if df_recruiters is not None and not df_recruiters.empty:
     st.subheader("📋 Количество направленных кандидатов по рекрутерам")
     
@@ -1481,17 +1477,13 @@ def parse_calls_tsv(text, is_incoming=True):
     if not text.strip():
         return None
     try:
-        # Разбиваем на строки
         lines = text.strip().splitlines()
         if len(lines) < 2:
             return None
-        # Первая строка - заголовок
         header = lines[0].split('\t')
-        # Проверяем, что заголовок содержит нужные колонки
         if len(header) < 4:
             st.warning("Неверный формат: требуется минимум 4 колонки (Сотрудник, Успешные, Неуспешные, Общее).")
             return None
-        # Читаем данные
         data = []
         for line in lines[1:]:
             if not line.strip():
@@ -1499,7 +1491,6 @@ def parse_calls_tsv(text, is_incoming=True):
             parts = line.split('\t')
             if len(parts) < 4:
                 continue
-            # Очищаем пробелы в числах
             try:
                 success = int(parts[1].replace(' ', ''))
                 fail = int(parts[2].replace(' ', ''))
@@ -1525,7 +1516,6 @@ df_incoming = parse_calls_tsv(incoming_text, is_incoming=True) if incoming_text 
 df_outgoing = parse_calls_tsv(outgoing_text, is_incoming=False) if outgoing_text else None
 
 # ---- Формируем итоговую таблицу статистики звонков ----
-# Берём список рекрутеров из df_recruiters (исключая итоговые строки)
 recruiter_list = []
 if df_recruiters is not None and not df_recruiters.empty:
     recruiter_list = df_recruiters[~df_recruiters['Рекрутер'].str.contains('Итого|Среднее', na=False)]['Рекрутер'].tolist()
@@ -1533,30 +1523,28 @@ if df_recruiters is not None and not df_recruiters.empty:
 if not recruiter_list:
     st.info("Нет списка рекрутеров для отображения статистики звонков.")
 else:
-    # Создаём базовый DataFrame с рекрутерами
     stats_df = pd.DataFrame({'Рекрутер': recruiter_list})
     
-    # Добавляем столбцы для исходящих (если есть вставленные данные)
+    # Исходящие данные
     if df_outgoing is not None:
-        # Объединяем по имени (сопоставление точное)
         merged_out = stats_df.merge(df_outgoing, left_on='Рекрутер', right_on='Сотрудник', how='left')
         stats_df['Кол-во исходящих'] = merged_out['Общее'].fillna(0).astype(int)
         stats_df['Успешные исх.'] = merged_out['Успешные'].fillna(0).astype(int)
         stats_df['Неуспешные исх.'] = merged_out['Неуспешные'].fillna(0).astype(int)
     else:
-        # Если нет вставленных данных, используем данные из CSV (если есть)
+        # Если нет вставленных исходящих, используем данные из CSV (только общее количество)
         if df_calls_filtered is not None and not df_calls_filtered.empty:
             calls_count = df_calls_filtered.groupby('Рекрутер').size().reset_index(name='Кол-во исходящих')
             stats_df = stats_df.merge(calls_count, on='Рекрутер', how='left')
             stats_df['Кол-во исходящих'] = stats_df['Кол-во исходящих'].fillna(0).astype(int)
-            stats_df['Успешные исх.'] = 0  # не знаем
+            stats_df['Успешные исх.'] = 0
             stats_df['Неуспешные исх.'] = 0
         else:
             stats_df['Кол-во исходящих'] = 0
             stats_df['Успешные исх.'] = 0
             stats_df['Неуспешные исх.'] = 0
     
-    # Добавляем входящие (если есть)
+    # Входящие данные (берём только успешные)
     if df_incoming is not None:
         merged_in = stats_df.merge(df_incoming, left_on='Рекрутер', right_on='Сотрудник', how='left')
         stats_df['Кол-во входящих'] = merged_in['Успешные'].fillna(0).astype(int)
@@ -1564,13 +1552,12 @@ else:
         stats_df['Кол-во входящих'] = 0
     
     # Вычисляем итоговые столбцы
-    stats_df['Всего вызов'] = stats_df['Кол-во исходящих'] + stats_df['Кол-во входящих']
-    # % Недозвонов: (неуспешные исходящие) / (успешные+неуспешные исходящие) * 100
+    stats_df['Всего звонков'] = stats_df['Кол-во исходящих'] + stats_df['Кол-во входящих']
     total_outgoing = stats_df['Успешные исх.'] + stats_df['Неуспешные исх.']
     stats_df['% Недозвонов'] = (stats_df['Неуспешные исх.'] / total_outgoing * 100).round(1).fillna(0)
     stats_df['% Недозвонов'] = stats_df['% Недозвонов'].astype(str) + '%'
     
-    # Добавляем среднюю длительность из CSV (если есть)
+    # Средняя длительность из CSV (если есть)
     if df_calls_filtered is not None and not df_calls_filtered.empty:
         avg_dur = df_calls_filtered.groupby('Рекрутер')['Длительность, сек'].mean().reset_index()
         avg_dur.columns = ['Рекрутер', 'Средняя длительность, сек']
@@ -1579,18 +1566,17 @@ else:
     else:
         stats_df['Средняя длительность, сек'] = 0
     
-    # Добавляем итоговую строку
+    # Итоговая строка
     total_row = {
         'Рекрутер': 'Итого (по выбранным)',
         'Кол-во исходящих': stats_df['Кол-во исходящих'].sum(),
         'Успешные исх.': stats_df['Успешные исх.'].sum(),
         'Неуспешные исх.': stats_df['Неуспешные исх.'].sum(),
         'Кол-во входящих': stats_df['Кол-во входящих'].sum(),
-        'Всего вызов': stats_df['Всего вызов'].sum(),
+        'Всего звонков': stats_df['Всего звонков'].sum(),
         '% Недозвонов': '',
         'Средняя длительность, сек': stats_df['Средняя длительность, сек'].mean().round(1)
     }
-    # Пересчитаем % недозвонов для итога
     total_out = total_row['Успешные исх.'] + total_row['Неуспешные исх.']
     total_row['% Недозвонов'] = f"{(total_row['Неуспешные исх.'] / total_out * 100).round(1)}%" if total_out > 0 else "0%"
     
@@ -1607,8 +1593,36 @@ else:
             "Успешные исх.": st.column_config.NumberColumn("Успешные исх.", format="%d", width="auto"),
             "Неуспешные исх.": st.column_config.NumberColumn("Неуспешные исх.", format="%d", width="auto"),
             "Кол-во входящих": st.column_config.NumberColumn("Кол-во входящих", format="%d", width="auto"),
-            "Всего вызов": st.column_config.NumberColumn("Всего вызов", format="%d", width="auto"),
+            "Всего звонков": st.column_config.NumberColumn("Всего звонков", format="%d", width="auto"),
             "% Недозвонов": st.column_config.TextColumn("% Недозвонов", width="auto"),
             "Средняя длительность, сек": st.column_config.NumberColumn("Средняя длительность, сек", format="%.1f", width="auto"),
         }
     )
+
+# =============================================================================
+#  НОВЫЙ БЛОК: ЛИДЕРБОРД (ПЕРЕНЕСЁН В КОНЕЦ)
+# =============================================================================
+# Теперь строим лидерборд с учётом всех данных
+best_avg_duration_recruiter = None
+best_avg_duration_value = None
+if df_calls_filtered is not None and not df_calls_filtered.empty:
+    avg_duration = df_calls_filtered.groupby('Рекрутер')['Длительность, сек'].mean().reset_index()
+    avg_duration.columns = ['Рекрутер', 'Средняя длительность']
+    if not avg_duration.empty:
+        max_row = avg_duration.loc[avg_duration['Средняя длительность'].idxmax()]
+        best_avg_duration_recruiter = max_row['Рекрутер']
+        best_avg_duration_value = round(max_row['Средняя длительность'], 1)
+
+# Если stats_df не определён, создадим пустой
+if 'stats_df' not in locals():
+    stats_df = None
+
+lb = build_leaderboard(df_recruiters, stats_df, best_avg_duration_recruiter, best_avg_duration_value)
+if not lb.empty:
+    st.subheader("🏆 Лидерборд")
+    cols = st.columns(4)
+    for i, (_, row) in enumerate(lb.iterrows()):
+        with cols[i % 4]:
+            st.metric(label=row['Категория'], value=row['Значение'], delta=row['Рекрутер'])
+else:
+    st.info("Нет данных для лидерборда.")
