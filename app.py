@@ -131,7 +131,7 @@ if uploaded_file_kpi is not None:
         exact_match='Дата последнего звонка до первого статуса первой подтвержденной смены'
     )
     col_kpi_client = find_column(df_kpi, ['клиент'])
-    col_kpi_city = find_column(df_kpi, ['город'])
+    col_kpi_city_first = find_column(df_kpi, ['город первой смены', 'город первой'])
 
     if col_kpi_phone is None:
         st.error("❌ В файле KPI не найден столбец 'Телефон гигера'")
@@ -158,8 +158,8 @@ if uploaded_file_kpi is not None:
     }
     if col_kpi_client is not None:
         rename_kpi[col_kpi_client] = 'Клиент'
-    if col_kpi_city is not None:
-        rename_kpi[col_kpi_city] = 'Город'
+    if col_kpi_city_first is not None:
+        rename_kpi[col_kpi_city_first] = 'Город первой смены'
 
     df_kpi = df_kpi.rename(columns=rename_kpi)
     df_kpi = df_kpi.loc[:, ~df_kpi.columns.duplicated()]
@@ -515,87 +515,61 @@ if df_main_filtered is not None:
     else:
         st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Проект первой подтвержденной смены'.")
 
-# ---- 5. Приглашенные по городам (только таблица) ----
+# ---- 5. Объединённый блок: Приглашенные/вышедшие по городам ----
 if df_main_filtered is not None and 'Город' in df_main_filtered.columns:
-    st.subheader("🏙️ Приглашенные по городам")
+    st.subheader("🏙️ Приглашенные/вышедшие по городам")
 
-    city_data = df_main_filtered[df_main_filtered['Город'].notna() & (df_main_filtered['Город'].astype(str).str.strip() != '')].copy()
-    city_data['Город'] = city_data['Город'].astype(str).str.strip()
+    # Приглашенные
+    city_invited = df_main_filtered[df_main_filtered['Город'].notna() & (df_main_filtered['Город'].astype(str).str.strip() != '')].copy()
+    city_invited['Город'] = city_invited['Город'].astype(str).str.strip()
+    invited_city = city_invited.groupby('Город')['Телефон'].nunique().reset_index()
+    invited_city.columns = ['Город', 'Кол-во приглашенных']
+    total_candidates = df_main_filtered['Телефон'].nunique()
+    invited_city['Доля приглашенных'] = (invited_city['Кол-во приглашенных'] / total_candidates * 100).round(1).astype(str) + '%'
 
-    if not city_data.empty:
-        city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
-        city_counts.columns = ['Город', 'Кол-во']
-        total_candidates = df_main_filtered['Телефон'].nunique()
-        city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
-        city_counts = city_counts.sort_values('Кол-во', ascending=False)
-
-        st.dataframe(
-            city_counts,
-            use_container_width=True,
-            column_config={
-                "Город": st.column_config.TextColumn("Город", width="auto"),
-                "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d", width="auto"),
-                "% от всех": st.column_config.TextColumn("% от всех", width="auto"),
-            }
-        )
-    else:
-        st.info("Нет данных по городам.")
-else:
-    st.info("Столбец 'Город' не найден, таблица городов пропущена.")
-
-# ---- 6. Вышедшие по городам из приглашенных ----
-if df_main_filtered is not None:
-    if 'Статус координатора' in df_main_filtered.columns:
-        df_worked = df_main_filtered[df_main_filtered['Статус координатора'] == 'went_work']
-    else:
-        df_worked = df_main_filtered[df_main_filtered['Статус лида'] == 'worked']
-
-    if not df_worked.empty and 'Город первой подтвержденной смены за всю жизнь' in df_worked.columns:
-        st.subheader("✅ Вышедшие по городам из приглашенных")
-
-        source_options_city = ['Все'] + sorted(df_worked['Источник ОМПП'].unique())
-        selected_source_worked_city = st.selectbox(
-            "Выберите источник для фильтрации вышедших:",
-            options=source_options_city,
-            key="worked_source_city"
-        )
-
-        if selected_source_worked_city == 'Все':
-            df_worked_filtered_city = df_worked
-        else:
-            df_worked_filtered_city = df_worked[df_worked['Источник ОМПП'] == selected_source_worked_city]
-
-        city_worked = df_worked_filtered_city[
-            df_worked_filtered_city['Город первой подтвержденной смены за всю жизнь'].notna() &
-            (df_worked_filtered_city['Город первой подтвержденной смены за всю жизнь'].astype(str).str.strip() != '')
+    # Вышедшие из KPI по городу первой смены
+    if df_kpi_filtered is not None and 'Город первой смены' in df_kpi_filtered.columns:
+        city_worked_kpi = df_kpi_filtered[
+            df_kpi_filtered['Город первой смены'].notna() &
+            (df_kpi_filtered['Город первой смены'].astype(str).str.strip() != '')
         ].copy()
-        city_worked['Город'] = city_worked['Город первой подтвержденной смены за всю жизнь'].astype(str).str.strip()
-
-        if not city_worked.empty:
-            worked_cities = city_worked.groupby('Город')['Телефон'].nunique().reset_index()
-            worked_cities.columns = ['Город', 'Кол-во вышедших']
-            total_worked_city = worked_cities['Кол-во вышедших'].sum()
-            if total_worked_city > 0:
-                worked_cities['% от всех вышедших'] = (worked_cities['Кол-во вышедших'] / total_worked_city * 100).round(1).astype(str) + '%'
-            else:
-                worked_cities['% от всех вышедших'] = '0%'
-            worked_cities = worked_cities.sort_values('Кол-во вышедших', ascending=False)
-
-            st.dataframe(
-                worked_cities,
-                use_container_width=True,
-                column_config={
-                    "Город": st.column_config.TextColumn("Город", width="auto"),
-                    "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d", width="auto"),
-                    "% от всех вышедших": st.column_config.TextColumn("% от всех вышедших", width="auto"),
-                }
-            )
-        else:
-            st.info("Нет данных по городам для вышедших кандидатов.")
+        city_worked_kpi['Город'] = city_worked_kpi['Город первой смены'].astype(str).str.strip()
+        worked_city_kpi = city_worked_kpi.groupby('Город')['Телефон гигера'].nunique().reset_index()
+        worked_city_kpi.columns = ['Город', 'Вышедшие (с дошедшими)']
     else:
-        st.info("Нет данных о вышедших кандидатах или отсутствует столбец 'Город первой подтвержденной смены за всю жизнь'.")
+        worked_city_kpi = pd.DataFrame(columns=['Город', 'Вышедшие (с дошедшими)'])
 
-# ---- 7. НОВЫЙ БЛОК: Вышедшие по проектам (с дошедшими) из KPI ----
+    # Объединение
+    merged_city = pd.merge(invited_city, worked_city_kpi, on='Город', how='outer').fillna(0)
+    merged_city['Кол-во приглашенных'] = merged_city['Кол-во приглашенных'].astype(int)
+    merged_city['Вышедшие (с дошедшими)'] = merged_city['Вышедшие (с дошедшими)'].astype(int)
+    merged_city['Конверсия из направленных в вышедших, %'] = (
+        merged_city['Вышедшие (с дошедшими)'] / merged_city['Кол-во приглашенных'] * 100
+    ).round(1).fillna(0).astype(str) + '%'
+    merged_city = merged_city.sort_values('Кол-во приглашенных', ascending=False)
+
+    # Отображение
+    col_config_city = {
+        "Город": st.column_config.TextColumn("Город", width="auto"),
+        "Кол-во приглашенных": st.column_config.NumberColumn("Кол-во приглашенных", format="%d", width="auto"),
+        "Доля приглашенных": st.column_config.TextColumn("Доля приглашенных", width="auto"),
+    }
+    if merged_city['Вышедшие (с дошедшими)'].sum() > 0:
+        col_config_city["Вышедшие (с дошедшими)"] = st.column_config.NumberColumn("Вышедшие (с дошедшими)", format="%d", width="auto")
+        col_config_city["Конверсия из направленных в вышедших, %"] = st.column_config.TextColumn("Конверсия из направленных в вышедших, %", width="auto")
+
+    st.dataframe(
+        merged_city,
+        use_container_width=True,
+        column_config=col_config_city
+    )
+else:
+    st.info("Столбец 'Город' не найден в основном отчете, таблица городов пропущена.")
+
+# ---- 6. Вышедшие по городам из приглашенных (удалено) ----
+# (интегрировано в предыдущий блок)
+
+# ---- 7. Вышедшие по проектам (с дошедшими) из KPI ----
 if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
     st.subheader("✅ Вышедшие по проектам (с дошедшими)")
 
@@ -629,47 +603,7 @@ if df_kpi_filtered is not None and 'Клиент' in df_kpi_filtered.columns:
 else:
     st.info("Для отображения блока 'Вышедшие по проектам (с дошедшими)' загрузите файл KPI с полем 'Клиент'.")
 
-# ---- 8. НОВЫЙ БЛОК: Вышедшие первогигеры по городам (с дошедшими) из KPI ----
-if df_kpi_filtered is not None and 'Город' in df_kpi_filtered.columns:
-    st.subheader("🏙️ Вышедшие первогигеры по городам (с дошедшими)")
-
-    source_options_city_kpi = ['Все'] + sorted(df_kpi_filtered['Источник ОМПП'].unique())
-    selected_source_city_kpi = st.selectbox(
-        "Выберите источник для фильтрации (города):",
-        options=source_options_city_kpi,
-        key="kpi_source_city"
-    )
-
-    if selected_source_city_kpi == 'Все':
-        df_kpi_filtered_city = df_kpi_filtered
-    else:
-        df_kpi_filtered_city = df_kpi_filtered[df_kpi_filtered['Источник ОМПП'] == selected_source_city_kpi]
-
-    city_data_kpi = df_kpi_filtered_city[
-        df_kpi_filtered_city['Город'].notna() &
-        (df_kpi_filtered_city['Город'].astype(str).str.strip() != '')
-    ].copy()
-    city_data_kpi['Город'] = city_data_kpi['Город'].astype(str).str.strip()
-
-    if not city_data_kpi.empty:
-        city_counts_kpi = city_data_kpi.groupby('Город')['Телефон гигера'].nunique().reset_index()
-        city_counts_kpi.columns = ['Город', 'Кол-во вышедших']
-        city_counts_kpi = city_counts_kpi.sort_values('Кол-во вышедших', ascending=False)
-
-        st.dataframe(
-            city_counts_kpi,
-            use_container_width=True,
-            column_config={
-                "Город": st.column_config.TextColumn("Город", width="auto"),
-                "Кол-во вышедших": st.column_config.NumberColumn("Кол-во вышедших", format="%d", width="auto"),
-            }
-        )
-    else:
-        st.info("Нет данных по городам для вышедших кандидатов.")
-else:
-    st.info("Для отображения блока 'Вышедшие первогигеры по городам' загрузите файл KPI с полем 'Город'.")
-
-# ---- 9. График по источникам (вышедшие из KPI) ----
+# ---- 8. График и детальная таблица по источникам (вышедшие из KPI) ----
 if df_kpi_filtered is not None:
     st.subheader("📊 Кол-во вышедших кандидатов по источникам (с дошедшими)")
     available_sources_kpi = sorted(df_kpi_filtered['Источник ОМПП'].unique())
@@ -702,7 +636,6 @@ if df_kpi_filtered is not None:
             fig_kpi.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
             st.plotly_chart(fig_kpi, use_container_width=True)
 
-        # ---- 9a. Детальная таблица по источникам (вышедшие из KPI) ----
         st.subheader("📋 Вышедшие по источникам и рекрутерам")
         detail_kpi = df_kpi_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон гигера'].nunique().reset_index()
         detail_kpi.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
