@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import re
 from datetime import datetime, date
+import io
 
 st.set_page_config(page_title="ОМПП Дашборд", layout="wide")
 st.title("📊 Дашборд ОМПП")
@@ -235,73 +236,77 @@ if uploaded_file_responses is not None:
         st.error(f"Не удалось прочитать лист 'Диаграмма': {e}")
         df_diagram = None
 
-# ---- Обработка файла звонков Mango-Office (CSV) ----
+# =============================================================================
+#  УЛУЧШЕННАЯ ОБРАБОТКА CSV-ФАЙЛА ЗВОНКОВ
+# =============================================================================
 if uploaded_file_calls is not None:
-    # Пробуем разные разделители, кодировки и варианты с заголовком
-    separators = [';', ',', '\t']
-    encodings = ['utf-8-sig', 'cp1251', 'latin1', 'utf-8']
-    df_calls = None
-    for sep in separators:
+    # Пытаемся прочитать файл как текст, чтобы проанализировать структуру
+    try:
+        raw_bytes = uploaded_file_calls.read()
+        # Пробуем разные кодировки
+        encodings = ['utf-8-sig', 'cp1251', 'latin1', 'utf-8']
+        text = None
         for enc in encodings:
             try:
-                # Сначала пробуем читать с указанием header=1 (вторая строка)
-                df_calls = pd.read_csv(uploaded_file_calls, sep=sep, decimal=',', quotechar='"', encoding=enc, header=1)
-                # Если получилось и колонки не пустые, проверяем, есть ли там наши ключевые слова
-                if df_calls is not None and not df_calls.empty:
-                    # Проверим, есть ли хоть какие-то колонки, подходящие под наши ключевые слова
-                    col_who = find_column(df_calls, ['кто звонил', 'звонивший', 'сотрудник', 'абонент', 'рекрутер'])
-                    col_call_type = find_column(df_calls, ['тип вызова', 'тип звонка', 'направление', 'вид'])
-                    col_duration = find_column(df_calls, ['длительность, сек', 'длительность', 'длительность (сек)', 'время разговора', 'длит'])
-                    if col_who is not None and col_call_type is not None and col_duration is not None:
-                        # Все найдено - выходим из циклов
-                        break
-                    else:
-                        # Не все найдено, пробуем другие варианты
-                        df_calls = None
-                        continue
-                else:
-                    df_calls = None
-            except:
-                df_calls = None
-                continue
-        if df_calls is not None:
-            break
-
-    # Если не удалось прочитать с header=1, попробуем определить заголовок автоматически (без header)
-    if df_calls is None:
-        for sep in separators:
-            for enc in encodings:
-                try:
-                    df_calls = pd.read_csv(uploaded_file_calls, sep=sep, decimal=',', quotechar='"', encoding=enc, header=None)
-                    # Ищем строку, которая содержит наши ключевые слова и используем её как заголовок
-                    for i, row in df_calls.iterrows():
-                        row_str = ' '.join(row.astype(str))
-                        if re.search(r'кто звонил|звонивший|тип вызова|длительность', row_str, re.I):
-                            # Эта строка - заголовок
-                            header_row = row
-                            # Читаем файл заново, пропуская строки до этой
-                            df_calls = pd.read_csv(uploaded_file_calls, sep=sep, decimal=',', quotechar='"', encoding=enc, skiprows=i, header=0)
-                            break
-                    if df_calls is not None and not df_calls.empty:
-                        # Проверим, что колонки найдены
-                        col_who = find_column(df_calls, ['кто звонил', 'звонивший', 'сотрудник', 'абонент', 'рекрутер'])
-                        col_call_type = find_column(df_calls, ['тип вызова', 'тип звонка', 'направление', 'вид'])
-                        col_duration = find_column(df_calls, ['длительность, сек', 'длительность', 'длительность (сек)', 'время разговора', 'длит'])
-                        if col_who is not None and col_call_type is not None and col_duration is not None:
-                            break
-                        else:
-                            df_calls = None
-                            continue
-                except:
-                    df_calls = None
-                    continue
-            if df_calls is not None:
+                text = raw_bytes.decode(enc)
                 break
-
-    if df_calls is not None:
-        df_calls.columns = df_calls.columns.str.strip()
-    else:
-        st.error("Не удалось прочитать CSV файл звонков ни в одном из форматов. Проверьте структуру файла.")
+            except UnicodeDecodeError:
+                continue
+        if text is None:
+            st.error("Не удалось декодировать файл ни в одной из кодировок.")
+            st.stop()
+        
+        lines = text.splitlines()
+        if not lines:
+            st.error("Файл пуст.")
+            st.stop()
+        
+        # Определяем разделитель: считаем частоту символов ; , \t в некавыченных полях
+        sep_counts = {';': 0, ',': 0, '\t': 0}
+        for line in lines[:20]:  # анализируем первые 20 строк
+            # Удаляем содержимое в кавычках, чтобы не учитывать разделители внутри
+            in_quotes = False
+            cleaned = []
+            for ch in line:
+                if ch == '"':
+                    in_quotes = not in_quotes
+                if not in_quotes and ch in sep_counts:
+                    sep_counts[ch] += 1
+        # Выбираем разделитель с максимальным количеством
+        best_sep = max(sep_counts, key=sep_counts.get)
+        if sep_counts[best_sep] == 0:
+            # Если ни один разделитель не найден, пробуем стандартные
+            best_sep = ';'  # по умолчанию
+        
+        # Ищем строку с заголовками (содержит ключевые слова)
+        header_keywords = ['кто звонил', 'звонивший', 'тип вызова', 'длительность']
+        header_row_idx = None
+        for i, line in enumerate(lines):
+            line_low = line.lower()
+            # Проверяем наличие хотя бы двух ключевых слов
+            found = sum(1 for kw in header_keywords if kw in line_low)
+            if found >= 2:
+                header_row_idx = i
+                break
+        
+        # Если заголовок найден, используем его, иначе пытаемся header=1
+        if header_row_idx is not None:
+            # Пропускаем строки до заголовка, читаем с header=0 (заголовок будет первой строкой)
+            data_to_read = '\n'.join(lines[header_row_idx:])
+            df_calls = pd.read_csv(io.StringIO(data_to_read), sep=best_sep, quotechar='"', encoding='utf-8', header=0)
+        else:
+            # Пробуем header=1 (вторая строка)
+            df_calls = pd.read_csv(io.StringIO(text), sep=best_sep, quotechar='"', encoding='utf-8', header=1)
+        
+        if df_calls is not None:
+            df_calls.columns = df_calls.columns.str.strip()
+        else:
+            st.error("Не удалось прочитать CSV файл звонков.")
+            st.stop()
+            
+    except Exception as e:
+        st.error(f"Ошибка при обработке CSV-файла: {e}")
+        st.stop()
 
 # ---- Боковая панель с фильтрами ----
 st.sidebar.header("Фильтры")
