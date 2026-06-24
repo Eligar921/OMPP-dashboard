@@ -414,11 +414,6 @@ selected_recruiters = st.sidebar.multiselect(
     key="recruiter_filter_global"
 )
 
-# Обновляем состояние при изменении мультиселекта
-if selected_recruiters != st.session_state.selected_recruiters_state:
-    st.session_state.selected_recruiters_state = selected_recruiters
-    st.session_state.previous_selection = selected_recruiters
-
 # ---- Применение фильтров к основному отчету ----
 if df_main is not None and selected_sources:
     df_main_filtered = df_main[df_main['Источник ОМПП'].isin(selected_sources)]
