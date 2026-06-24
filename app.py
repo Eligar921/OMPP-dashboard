@@ -974,18 +974,19 @@ def build_leaderboard(df_recruiters, stats_df, best_avg_duration_recruiter=None,
     return pd.DataFrame(rows)
 
 # =============================================================================
-#  ВЫВОД ЛИДЕРБОРДА (НАВЕРХУ, ПОСЛЕ ВСТАВКИ) – ДВЕ СТРОКИ ПО 3
+#  ВЫВОД ЛИДЕРБОРДА – ЗАГОЛОВОК ПО ЦЕНТРУ С ОТСТУПОМ, ДВЕ СТРОКИ ПО 3, СМЕЩЕНИЕ В ЦЕНТР
 # =============================================================================
 lb = build_leaderboard(df_recruiters, stats_df, best_avg_duration_recruiter, best_avg_duration_value)
 if not lb.empty:
-    st.markdown(f"<h2 style='text-align: center; margin-bottom: 1.5rem;'>🏆 Лидерборд</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; margin-bottom: 1.5rem;'>🏆 Лидерборд</h2>", unsafe_allow_html=True)
     # Разбиваем на группы по 3 (первые 3 – отклики/конверсии, следующие 3 – звонки)
     for i in range(0, len(lb), 3):
-        cols = st.columns(3)
+        # Используем 5 колонок: пустая слева, 3 основные, пустая справа
+        cols = st.columns([1, 3, 3, 3, 1])
         for j in range(3):
             if i + j < len(lb):
                 row = lb.iloc[i + j]
-                with cols[j]:
+                with cols[j + 1]:  # +1 из-за пустой первой колонки
                     st.metric(label=row['Категория'], value=row['Значение'], delta=row['Рекрутер'])
     st.markdown("---")
 else:
