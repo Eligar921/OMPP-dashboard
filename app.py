@@ -5,20 +5,11 @@ import plotly.express as px
 st.set_page_config(page_title="ОМПП Дашборд", layout="wide")
 st.title("📊 Дашборд ОМПП")
 
-uploaded_files = st.file_uploader(
-    "Загрузите один или несколько Excel файлов 'отчет по дате направления'",
-    type=["xlsx"],
-    accept_multiple_files=True
-)
+uploaded_file = st.file_uploader("Загрузите Excel файл 'отчет по дате направления'", type=["xlsx"])
 
-if uploaded_files:
-    # Объединяем все загруженные файлы
-    df_list = []
-    for file in uploaded_files:
-        df_temp = pd.read_excel(file, sheet_name=0)
-        df_temp.columns = df_temp.columns.str.strip()
-        df_list.append(df_temp)
-    df = pd.concat(df_list, ignore_index=True)
+if uploaded_file is not None:
+    df = pd.read_excel(uploaded_file, sheet_name=0)
+    df.columns = df.columns.str.strip()
 
     # Функция поиска столбца по ключевым словам
     def find_column(keywords):
@@ -60,10 +51,6 @@ if uploaded_files:
     if col_coord_status is None and col_lead_status is None:
         st.error("❌ Не найден ни столбец 'Статус координатора', ни 'Статус лида'")
         st.stop()
-    if col_city is None:
-        st.warning("⚠️ Столбец 'Город' не найден. Таблица по городам будет пропущена.")
-    if col_project_group is None:
-        st.warning("⚠️ Столбец 'Желаемые проекты (Группа)' не найден. Диаграмма проектов будет пропущена.")
 
     # Переименование
     rename_map = {
@@ -170,7 +157,8 @@ if uploaded_files:
                 labels={'Кол-во': 'Кол-во направленных кандидатов', 'Рекрутер': ''},
                 text='Кол-во',
                 color='Кол-во',
-                color_continuous_scale='Blues'
+                color_continuous_scale='Blues',
+                height=500
             )
             fig.update_traces(textposition='outside')
             fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
@@ -220,6 +208,7 @@ if uploaded_files:
             df_projects['Проект'] = df_projects['Желаемые проекты (Группа)']
 
         df_projects = df_projects[df_projects['Проект'].notna() & (df_projects['Проект'] != '')]
+
         project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
         project_counts.columns = ['Проект', 'Кол-во']
         project_counts = project_counts.sort_values('Кол-во', ascending=False)
@@ -234,23 +223,23 @@ if uploaded_files:
                 labels={'Кол-во': 'Кол-во кандидатов', 'Проект': ''},
                 text='Кол-во',
                 color='Кол-во',
-                color_continuous_scale='Teal'
+                color_continuous_scale='Teal',
+                height=500
             )
             fig_proj.update_traces(textposition='outside')
-            fig_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False, height=600)
+            fig_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
             st.plotly_chart(fig_proj, use_container_width=True)
         else:
             st.info("Нет данных по проектам.")
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- НОВЫЙ БЛОК: Приглашенные по городам (с исправлением ошибки) ----
+    # ---- НОВЫЙ БЛОК: Приглашенные по городам (исправленная фильтрация) ----
     if 'Город' in df_filtered.columns:
         st.subheader("🏙️ Приглашенные по городам")
-        # Создаём маску для непустых городов (без использования .loc, чтобы избежать ошибки)
+        # Используем .loc с булевой маской, чтобы избежать ошибок с индексами
         city_mask = df_filtered['Город'].notna() & (df_filtered['Город'] != '')
-        city_data = df_filtered[city_mask].copy()
-
+        city_data = df_filtered.loc[city_mask].copy()
         if not city_data.empty:
             city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
             city_counts.columns = ['Город', 'Кол-во']
@@ -270,8 +259,7 @@ if uploaded_files:
                 }
             )
 
-            # ---- Диаграмма по городам (увеличенная) ----
-            st.subheader("📊 Приглашенные по городам (диаграмма)")
+            # Добавляем столбчатую диаграмму по городам с увеличенной высотой
             fig_city = px.bar(
                 city_counts,
                 x='Кол-во',
@@ -281,15 +269,11 @@ if uploaded_files:
                 labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
                 text='Кол-во',
                 color='Кол-во',
-                color_continuous_scale='Viridis'
+                color_continuous_scale='Viridis',
+                height=700  # увеличенная высота для читаемости
             )
             fig_city.update_traces(textposition='outside')
-            fig_city.update_layout(
-                yaxis={'categoryorder': 'total ascending'},
-                showlegend=False,
-                height=700,  # Увеличиваем высоту для читаемости
-                width=900     # Можно задать ширину, но обычно use_container_width работает
-            )
+            fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
             st.plotly_chart(fig_city, use_container_width=True)
         else:
             st.info("Нет данных по городам.")
@@ -303,4 +287,4 @@ if uploaded_files:
     st.sidebar.write(f"📞 Уникальных телефонов: **{df_filtered['Телефон'].nunique()}**")
 
 else:
-    st.info("👈 Загрузите один или несколько Excel файлов для начала работы.")
+    st.info("👈 Загрузите файл Excel для начала работы.")
