@@ -256,61 +256,62 @@ if uploaded_file is not None:
     else:
         st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
 
-    # ---- ПРИГЛАШЕННЫЕ ПО ГОРОДАМ ----
-    if 'Город' in df_filtered.columns:
-        st.subheader("🏙️ Приглашенные по городам")
+   # ---- ПРИГЛАШЕННЫЕ ПО ГОРОДАМ ----
+if 'Город' in df_filtered.columns:
+    st.subheader("🏙️ Приглашенные по городам")
 
-        # Защита от дублирования столбца "Город"
-        city_series = df_filtered['Город']
-        if isinstance(city_series, pd.DataFrame):
-            city_series = city_series.iloc[:, 0]
+    # Защита от дублирования столбца "Город"
+    city_series = df_filtered['Город']
+    if isinstance(city_series, pd.DataFrame):
+        city_series = city_series.iloc[:, 0]
 
-        city_data = df_filtered.copy()
-        city_data['Город'] = city_series
+    city_data = df_filtered.copy()
+    city_data['Город'] = city_series
 
-        city_data = city_data[
-            city_data['Город'].notna() &
-            (city_data['Город'].astype(str).str.strip() != '')
-        ]
+    city_data = city_data[
+        city_data['Город'].notna() &
+        (city_data['Город'].astype(str).str.strip() != '')
+    ]
 
-        if not city_data.empty:
-            city_counts = city_data.groupby('Город').size().reset_index(name='Кол-во')
-            city_counts.columns = ['Город', 'Кол-во']
-            total_candidates = df_filtered['Телефон'].nunique()
-            city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
-            city_counts = city_counts.sort_values('Кол-во', ascending=False)
+    if not city_data.empty:
+        # Вместо size() используем nunique() по телефону
+        city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index(name='Кол-во')
+        city_counts.columns = ['Город', 'Кол-во']
+        total_candidates = df_filtered['Телефон'].nunique()
+        city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
+        city_counts = city_counts.sort_values('Кол-во', ascending=False)
 
-            st.dataframe(
-                city_counts,
-                use_container_width=True,
-                column_config={
-                    "Город": "Город",
-                    "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
-                    "% от всех": st.column_config.TextColumn("% от всех"),
-                }
-            )
+        st.dataframe(
+            city_counts,
+            use_container_width=True,
+            column_config={
+                "Город": "Город",
+                "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                "% от всех": st.column_config.TextColumn("% от всех"),
+            }
+        )
 
-            # Столбчатая диаграмма по городам
-            fig_city = px.bar(
-                city_counts,
-                x='Кол-во',
-                y='Город',
-                orientation='h',
-                title="Количество направленных кандидатов по городам",
-                labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
-                text='Кол-во',
-                color='Кол-во',
-                color_continuous_scale='Viridis',
-                height=700
-            )
-            fig_city.update_traces(textposition='outside')
-            fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
-            st.plotly_chart(fig_city, use_container_width=True)
-        else:
-            st.info("Нет данных по городам.")
+        # Столбчатая диаграмма по городам
+        fig_city = px.bar(
+            city_counts,
+            x='Кол-во',
+            y='Город',
+            orientation='h',
+            title="Количество направленных кандидатов по городам",
+            labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
+            text='Кол-во',
+            color='Кол-во',
+            color_continuous_scale='Viridis',
+            height=700
+        )
+        fig_city.update_traces(textposition='outside')
+        fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+        st.plotly_chart(fig_city, use_container_width=True)
     else:
-        st.info("Столбец 'Город' не найден, таблица городов пропущена.")
-
+        st.info("Нет данных по городам.")
+else:
+    st.info("Столбец 'Город' не найден, таблица городов пропущена.")
+    
     # ---- Статистика в сайдбаре ----
     st.sidebar.markdown("---")
     st.sidebar.write(f"🧾 Всего строк после фильтров: **{len(df_filtered)}**")
