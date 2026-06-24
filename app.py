@@ -110,11 +110,18 @@ if uploaded_file is not None:
     # Данные до фильтра (после исключения пустых источников)
     df_before = df_raw[df_raw['Источник ОМПП'].notna() & (df_raw['Источник ОМПП'] != '')]
     total_before = len(df_before)
-    moscow_before = len(df_before[df_before['Город'].str.strip() == 'Москва' if 'Город' in df_before.columns else False])
 
-    # Данные после фильтра
+    # Определяем Москву через contains (регистронезависимо)
+    if 'Город' in df_before.columns:
+        moscow_before = len(df_before[df_before['Город'].astype(str).str.contains('москва', case=False, na=False)])
+    else:
+        moscow_before = 0
+
     total_after = len(df)
-    moscow_after = len(df[df['Город'].str.strip() == 'Москва'] if 'Город' in df.columns else 0)
+    if 'Город' in df.columns:
+        moscow_after = len(df[df['Город'].astype(str).str.contains('москва', case=False, na=False)])
+    else:
+        moscow_after = 0
 
     st.sidebar.write(f"**До фильтра по звонку:**")
     st.sidebar.write(f"Всего строк: {total_before}")
@@ -126,9 +133,11 @@ if uploaded_file is not None:
 
     # Покажем пример отброшенных записей с Москвой
     if 'Город' in df_before.columns:
+        # Индексы после фильтра
+        kept_indices = set(df.index)
         dropped = df_before[
-            (df_before['Город'].str.strip() == 'Москва') &
-            (~df_before.index.isin(df.index))
+            df_before['Город'].astype(str).str.contains('москва', case=False, na=False) &
+            (~df_before.index.isin(kept_indices))
         ]
         if not dropped.empty:
             st.sidebar.write(f"**Отброшено записей с Москвой: {len(dropped)}**")
@@ -137,6 +146,198 @@ if uploaded_file is not None:
         else:
             st.sidebar.write("Нет отброшенных записей с Москвой (все сохранены).")
 
-    # ---- ОСТАЛЬНАЯ ЧАСТЬ КОДА (БЕЗ ИЗМЕНЕНИЙ) ----
-    # Далее идёт ваш существующий код с фильтрами, таблицами и графиками
-    # ... (весь остальной код, начиная с боковой панели)
+    # ---- ОСТАЛЬНАЯ ЧАСТЬ КОДА (БЕЗ ИЗМЕНЕНИЙ, но с учётом contains для города) ----
+    # ---- Боковая панель ----
+    st.sidebar.header("Фильтры")
+    sources = sorted(df['Источник ОМПП'].unique())
+    selected_sources = st.sidebar.multiselect("Источник ОМПП", options=sources, default=sources)
+    df_filtered = df[df['Источник ОМПП'].isin(selected_sources)]
+
+    min_date = df_filtered['Дата направления'].min().date()
+    max_date = df_filtered['Дата направления'].max().date()
+    date_range = st.sidebar.date_input(
+        "Диапазон дат направления",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+    if len(date_range) == 2:
+        start_date, end_date = date_range
+        df_filtered = df_filtered[
+            (df_filtered['Дата направления'].dt.date >= start_date) &
+            (df_filtered['Дата направления'].dt.date <= end_date)
+        ]
+
+    df_filtered = df_filtered.reset_index(drop=True)
+
+    # ---- Таблица рекрутеров ----
+    recruiter_counts = df_filtered.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+    recruiter_counts.columns = ['Рекрутер', 'Кол-во кандидатов']
+    recruiter_counts = recruiter_counts.sort_values('Кол-во кандидатов', ascending=False)
+
+    st.subheader("📋 Количество направленных кандидатов по рекрутерам")
+    st.dataframe(
+        recruiter_counts,
+        use_container_width=True,
+        column_config={
+            "Рекрутер": st.column_config.TextColumn("Рекрутер", width="medium"),
+            "Кол-во кандидатов": st.column_config.NumberColumn("Кол-во кандидатов", width="small")
+        }
+    )
+
+    # ---- График по источникам ----
+    st.subheader("📊 Кол-во направленных кандидатов по источникам")
+    available_sources = sorted(df_filtered['Источник ОМПП'].unique())
+    if not available_sources:
+        st.warning("Нет доступных источников для отображения.")
+    else:
+        selected_source_for_chart = st.selectbox("Выберите источник для отображения:", options=available_sources)
+
+        df_chart = df_filtered[df_filtered['Источник ОМПП'] == selected_source_for_chart]
+        chart_data = df_chart.groupby('Рекрутер')['Телефон'].nunique().reset_index()
+        chart_data.columns = ['Рекрутер', 'Кол-во']
+        chart_data = chart_data.sort_values('Кол-во', ascending=False)
+
+        if chart_data.empty:
+            st.info("Нет данных для выбранного источника.")
+        else:
+            fig = px.bar(
+                chart_data,
+                x='Кол-во',
+                y='Рекрутер',
+                orientation='h',
+                title=f"Источник: {selected_source_for_chart}",
+                labels={'Кол-во': 'Кол-во направленных кандидатов', 'Рекрутер': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Blues',
+                height=500
+            )
+            fig.update_traces(textposition='outside')
+            fig.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Детальная таблица по источникам
+        st.subheader("📋 Детальная разбивка по источникам для каждого рекрутера")
+        detail = df_filtered.groupby(['Рекрутер', 'Источник ОМПП'])['Телефон'].nunique().reset_index()
+        detail.columns = ['Рекрутер', 'Источник ОМПП', 'Кол-во']
+
+        recruiter_total = detail.groupby('Рекрутер')['Кол-во'].sum().reset_index()
+        recruiter_total.columns = ['Рекрутер', 'Всего_рекрутер']
+
+        grand_total = detail['Кол-во'].sum()
+
+        detail = detail.merge(recruiter_total, on='Рекрутер', how='left')
+        detail['% от рекрутера'] = (detail['Кол-во'] / detail['Всего_рекрутер'] * 100).round(1)
+        detail['% от всех'] = (detail['Кол-во'] / grand_total * 100).round(1)
+
+        detail['% от рекрутера'] = detail['% от рекрутера'].astype(str) + '%'
+        detail['% от всех'] = detail['% от всех'].astype(str) + '%'
+
+        detail = detail.sort_values(['Рекрутер', 'Кол-во'], ascending=[True, False])
+
+        st.dataframe(
+            detail[['Рекрутер', 'Источник ОМПП', 'Кол-во', '% от рекрутера', '% от всех']],
+            use_container_width=True,
+            column_config={
+                "Рекрутер": "Рекрутер",
+                "Источник ОМПП": "Источник",
+                "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                "% от рекрутера": st.column_config.TextColumn("% от рекрутера"),
+                "% от всех": st.column_config.TextColumn("% от всех"),
+            }
+        )
+
+    # ---- Приглашенные по проектам ----
+    if 'Желаемые проекты (Группа)' in df_filtered.columns:
+        st.subheader("📊 Приглашенные по проектам")
+        df_projects = df_filtered.copy()
+        if 'Желаемые проекты (Клиент)' in df_projects.columns:
+            df_projects['Проект'] = df_projects.apply(
+                lambda row: row['Желаемые проекты (Клиент)'] if row['Желаемые проекты (Группа)'] == 'Без группы' else row['Желаемые проекты (Группа)'],
+                axis=1
+            )
+        else:
+            df_projects['Проект'] = df_projects['Желаемые проекты (Группа)']
+
+        df_projects = df_projects[df_projects['Проект'].notna() & (df_projects['Проект'] != '')]
+
+        project_counts = df_projects.groupby('Проект')['Телефон'].nunique().reset_index()
+        project_counts.columns = ['Проект', 'Кол-во']
+        project_counts = project_counts.sort_values('Кол-во', ascending=False)
+
+        if not project_counts.empty:
+            fig_proj = px.bar(
+                project_counts,
+                x='Кол-во',
+                y='Проект',
+                orientation='h',
+                title="Количество направленных кандидатов по проектам",
+                labels={'Кол-во': 'Кол-во кандидатов', 'Проект': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Teal',
+                height=500
+            )
+            fig_proj.update_traces(textposition='outside')
+            fig_proj.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_proj, use_container_width=True)
+        else:
+            st.info("Нет данных по проектам.")
+    else:
+        st.info("Столбец 'Желаемые проекты (Группа)' не найден, диаграмма проектов пропущена.")
+
+    # ---- Приглашенные по городам (исправлено: группировка по точному значению "Город", но с очисткой пробелов) ----
+    if 'Город' in df_filtered.columns:
+        st.subheader("🏙️ Приглашенные по городам")
+
+        # Очищаем пробелы и пустые значения
+        city_data = df_filtered[df_filtered['Город'].notna() & (df_filtered['Город'].astype(str).str.strip() != '')].copy()
+        city_data['Город'] = city_data['Город'].astype(str).str.strip()
+
+        if not city_data.empty:
+            city_counts = city_data.groupby('Город')['Телефон'].nunique().reset_index()
+            city_counts.columns = ['Город', 'Кол-во']
+            total_candidates = df_filtered['Телефон'].nunique()
+            city_counts['% от всех'] = (city_counts['Кол-во'] / total_candidates * 100).round(1).astype(str) + '%'
+            city_counts = city_counts.sort_values('Кол-во', ascending=False)
+
+            st.dataframe(
+                city_counts,
+                use_container_width=True,
+                column_config={
+                    "Город": "Город",
+                    "Кол-во": st.column_config.NumberColumn("Кол-во", format="%d"),
+                    "% от всех": st.column_config.TextColumn("% от всех"),
+                }
+            )
+
+            # Диаграмма по городам
+            fig_city = px.bar(
+                city_counts,
+                x='Кол-во',
+                y='Город',
+                orientation='h',
+                title="Количество направленных кандидатов по городам",
+                labels={'Кол-во': 'Кол-во кандидатов', 'Город': ''},
+                text='Кол-во',
+                color='Кол-во',
+                color_continuous_scale='Viridis',
+                height=700
+            )
+            fig_city.update_traces(textposition='outside')
+            fig_city.update_layout(yaxis={'categoryorder': 'total ascending'}, showlegend=False)
+            st.plotly_chart(fig_city, use_container_width=True)
+        else:
+            st.info("Нет данных по городам.")
+    else:
+        st.info("Столбец 'Город' не найден, таблица городов пропущена.")
+
+    # ---- Статистика в сайдбаре ----
+    st.sidebar.markdown("---")
+    st.sidebar.write(f"🧾 Всего строк после фильтров: **{len(df_filtered)}**")
+    st.sidebar.write(f"👥 Уникальных рекрутеров: **{df_filtered['Рекрутер'].nunique()}**")
+    st.sidebar.write(f"📞 Уникальных телефонов: **{df_filtered['Телефон'].nunique()}**")
+
+else:
+    st.info("👈 Загрузите файл Excel для начала работы.")
